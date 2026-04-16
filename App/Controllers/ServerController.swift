@@ -54,6 +54,7 @@ enum ServiceRegistry {
             CaptureService.shared,
             ContactsService.shared,
             LocationService.shared,
+            MailService.shared,
             MapsService.shared,
             MessageService.shared,
             RemindersService.shared,
@@ -71,6 +72,7 @@ enum ServiceRegistry {
         captureEnabled: Binding<Bool>,
         contactsEnabled: Binding<Bool>,
         locationEnabled: Binding<Bool>,
+        mailEnabled: Binding<Bool>,
         mapsEnabled: Binding<Bool>,
         messagesEnabled: Binding<Bool>,
         remindersEnabled: Binding<Bool>,
@@ -106,6 +108,13 @@ enum ServiceRegistry {
                 color: .blue,
                 service: LocationService.shared,
                 binding: locationEnabled
+            ),
+            ServiceConfig(
+                name: "Mail",
+                iconName: "envelope.fill",
+                color: .blue,
+                service: MailService.shared,
+                binding: mailEnabled
             ),
             ServiceConfig(
                 name: "Maps",
@@ -169,6 +178,7 @@ final class ServerController: ObservableObject {
     @AppStorage("captureEnabled") private var captureEnabled = false
     @AppStorage("contactsEnabled") private var contactsEnabled = false
     @AppStorage("locationEnabled") private var locationEnabled = false
+    @AppStorage("mailEnabled") private var mailEnabled = false
     @AppStorage("mapsEnabled") private var mapsEnabled = true  // Default enabled
     @AppStorage("messagesEnabled") private var messagesEnabled = false
     @AppStorage("remindersEnabled") private var remindersEnabled = false
@@ -186,6 +196,7 @@ final class ServerController: ObservableObject {
             captureEnabled: $captureEnabled,
             contactsEnabled: $contactsEnabled,
             locationEnabled: $locationEnabled,
+            mailEnabled: $mailEnabled,
             mapsEnabled: $mapsEnabled,
             messagesEnabled: $messagesEnabled,
             remindersEnabled: $remindersEnabled,
