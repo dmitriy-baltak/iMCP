@@ -221,6 +221,98 @@ final class MailService: NSObject, Service {
             }
             return fetched
         }
+
+        Tool(
+            name: "mail_send",
+            description: """
+                Compose and send a message via Mail.app using the user's default \
+                outgoing account. Attachments are referenced by absolute \
+                filesystem path.
+                """,
+            inputSchema: .object(
+                properties: [
+                    "to": .array(
+                        description: "To addresses",
+                        items: .string()
+                    ),
+                    "cc": .array(
+                        description: "Cc addresses",
+                        items: .string()
+                    ),
+                    "bcc": .array(
+                        description: "Bcc addresses",
+                        items: .string()
+                    ),
+                    "subject": .string(description: "Message subject"),
+                    "body": .string(description: "Message body"),
+                    "isHTML": .boolean(
+                        description:
+                            "Hint that body is HTML. Currently sent as plain text; see docs.",
+                        default: .bool(false)
+                    ),
+                    "attachments": .array(
+                        description: "Absolute filesystem paths to attach",
+                        items: .string()
+                    ),
+                ],
+                required: ["to", "subject", "body"],
+                additionalProperties: false
+            ),
+            annotations: .init(
+                title: "Send Mail",
+                destructiveHint: true,
+                openWorldHint: true
+            )
+        ) { arguments in
+            try await self.activate()
+
+            let toList = arguments["to"]?.arrayValue?.compactMap { $0.stringValue } ?? []
+            let ccList = arguments["cc"]?.arrayValue?.compactMap { $0.stringValue } ?? []
+            let bccList = arguments["bcc"]?.arrayValue?.compactMap { $0.stringValue } ?? []
+            let subject = arguments["subject"]?.stringValue ?? ""
+            let body = arguments["body"]?.stringValue ?? ""
+            let isHTML = arguments["isHTML"]?.boolValue ?? false
+            let attachmentPaths =
+                arguments["attachments"]?.arrayValue?.compactMap { $0.stringValue } ?? []
+
+            guard !toList.isEmpty else {
+                throw MailError.invalidArgument("`to` must contain at least one address.")
+            }
+
+            for path in attachmentPaths {
+                guard FileManager.default.fileExists(atPath: path) else {
+                    throw MailError.invalidArgument("Attachment not found: \(path)")
+                }
+            }
+
+            func stringList(_ items: [String]) -> NSAppleEventDescriptor {
+                let list = NSAppleEventDescriptor.list()
+                for (offset, item) in items.enumerated() {
+                    list.insert(NSAppleEventDescriptor(string: item), at: offset + 1)
+                }
+                return list
+            }
+
+            let result = try await self.runHandler(
+                "sendMessage",
+                arguments: [
+                    NSAppleEventDescriptor(string: subject),
+                    NSAppleEventDescriptor(string: body),
+                    stringList(toList),
+                    stringList(ccList),
+                    stringList(bccList),
+                    NSAppleEventDescriptor(boolean: isHTML),
+                    stringList(attachmentPaths),
+                ]
+            )
+
+            let status = result.stringValue ?? "sent"
+            return Value.object([
+                "status": .string(status),
+                "to": .array(toList.map { .string($0) }),
+                "subject": .string(subject),
+            ])
+        }
     }
 
     // MARK: - Descriptor decoding
@@ -679,6 +771,32 @@ final class MailService: NSObject, Service {
 
             return {msgLocalId, msgIdHeaderVal, subjText, fromText, toText, ccText, bccText, replyToText, dateIso, mbName, acctName, allHeadersText, bodyText, attList}
         end fetchMessage
+
+        on sendMessage(subjectText, bodyText, toAddrs, ccAddrs, bccAddrs, isHTML, attachmentPaths)
+            tell application "Mail"
+                set newMsg to make new outgoing message with properties {subject:subjectText, content:bodyText, visible:false}
+                tell newMsg
+                    repeat with addr in toAddrs
+                        make new to recipient at end of to recipients with properties {address:(addr as text)}
+                    end repeat
+                    repeat with addr in ccAddrs
+                        make new cc recipient at end of cc recipients with properties {address:(addr as text)}
+                    end repeat
+                    repeat with addr in bccAddrs
+                        make new bcc recipient at end of bcc recipients with properties {address:(addr as text)}
+                    end repeat
+                end tell
+                repeat with p in attachmentPaths
+                    try
+                        tell content of newMsg
+                            make new attachment with properties {file name:(POSIX file (p as text))} at after last paragraph
+                        end tell
+                    end try
+                end repeat
+                send newMsg
+            end tell
+            return "sent"
+        end sendMessage
         """#
     }
 
