@@ -144,6 +144,83 @@ final class MailService: NSObject, Service {
 
             return Value.array(self.decodeMessageRows(result))
         }
+
+        Tool(
+            name: "mail_fetch",
+            description: """
+                Fetch a single Mail message by Mail.app id or Message-ID header, \
+                returning full headers, plain-text body, and attachment metadata. \
+                Attachment bytes are never inlined; when include_attachments is \
+                true, attachments are saved to a temporary directory and their \
+                paths are returned.
+                """,
+            inputSchema: .object(
+                properties: [
+                    "id": .string(
+                        description:
+                            "Mail.app-local message id (integer, as returned by mail_search)"
+                    ),
+                    "message_id": .string(
+                        description:
+                            "RFC 5322 Message-ID header value, including angle brackets if present"
+                    ),
+                    "include_attachments": .boolean(
+                        description:
+                            "When true, save attachments to a temp directory and return their paths",
+                        default: .bool(false)
+                    ),
+                ],
+                additionalProperties: false
+            ),
+            annotations: .init(
+                title: "Fetch Mail Message",
+                readOnlyHint: true,
+                openWorldHint: false
+            )
+        ) { arguments in
+            try await self.activate()
+
+            let localId = arguments["id"]?.stringValue ?? ""
+            let messageIdHeader = arguments["message_id"]?.stringValue ?? ""
+            let includeAttachments = arguments["include_attachments"]?.boolValue ?? false
+
+            guard !localId.isEmpty || !messageIdHeader.isEmpty else {
+                throw MailError.invalidArgument(
+                    "Provide either `id` or `message_id` to identify the message."
+                )
+            }
+
+            let attachmentDir: String
+            if includeAttachments {
+                let dir = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("iMCP-Mail-\(UUID().uuidString)", isDirectory: true)
+                try FileManager.default.createDirectory(
+                    at: dir,
+                    withIntermediateDirectories: true
+                )
+                attachmentDir = dir.path
+            } else {
+                attachmentDir = ""
+            }
+
+            let result = try await self.runHandler(
+                "fetchMessage",
+                arguments: [
+                    NSAppleEventDescriptor(string: localId),
+                    NSAppleEventDescriptor(string: messageIdHeader),
+                    NSAppleEventDescriptor(boolean: includeAttachments),
+                    NSAppleEventDescriptor(string: attachmentDir),
+                ]
+            )
+
+            guard let fetched = self.decodeFetchedMessage(result) else {
+                throw MailError.scriptExecutionFailed(
+                    code: 0,
+                    message: "Message not found"
+                )
+            }
+            return fetched
+        }
     }
 
     // MARK: - Descriptor decoding
@@ -178,6 +255,64 @@ final class MailService: NSObject, Service {
             "mailbox": .string(field(7)),
             "account": .string(field(8)),
             "snippet": .string(field(9)),
+        ])
+    }
+
+    fileprivate func decodeFetchedMessage(_ descriptor: NSAppleEventDescriptor) -> Value? {
+        guard descriptor.descriptorType == typeAEList else { return nil }
+        let n = descriptor.numberOfItems
+        guard n >= 13 else { return nil }
+
+        func str(_ index: Int) -> String {
+            guard index <= n, let item = descriptor.atIndex(index) else { return "" }
+            return item.stringValue ?? ""
+        }
+
+        var attachments: [Value] = []
+        if let attachmentsDescriptor = descriptor.atIndex(14),
+            attachmentsDescriptor.descriptorType == typeAEList
+        {
+            let count = attachmentsDescriptor.numberOfItems
+            if count > 0 {
+                for i in 1...count {
+                    guard let row = attachmentsDescriptor.atIndex(i),
+                        row.descriptorType == typeAEList
+                    else { continue }
+                    func field(_ index: Int) -> String {
+                        guard index <= row.numberOfItems,
+                            let item = row.atIndex(index)
+                        else { return "" }
+                        return item.stringValue ?? ""
+                    }
+                    var entry: [String: Value] = [
+                        "name": .string(field(1)),
+                        "size": .string(field(2)),
+                        "mimeType": .string(field(3)),
+                    ]
+                    let savedPath = field(4)
+                    if !savedPath.isEmpty {
+                        entry["path"] = .string(savedPath)
+                    }
+                    attachments.append(.object(entry))
+                }
+            }
+        }
+
+        return .object([
+            "id": .string(str(1)),
+            "messageId": .string(str(2)),
+            "subject": .string(str(3)),
+            "from": .string(str(4)),
+            "to": .string(str(5)),
+            "cc": .string(str(6)),
+            "bcc": .string(str(7)),
+            "replyTo": .string(str(8)),
+            "date": .string(str(9)),
+            "mailbox": .string(str(10)),
+            "account": .string(str(11)),
+            "headers": .string(str(12)),
+            "body": .string(str(13)),
+            "attachments": .array(attachments),
         ])
     }
 
@@ -404,6 +539,146 @@ final class MailService: NSObject, Service {
             end tell
             return foundResults
         end searchMessages
+
+        on findMessageById(idNum)
+            tell application "Mail"
+                repeat with acct in accounts
+                    repeat with mb in mailboxes of acct
+                        try
+                            set candidate to first message of mb whose id is idNum
+                            return {candidate, acct, mb}
+                        end try
+                    end repeat
+                end repeat
+            end tell
+            return missing value
+        end findMessageById
+
+        on findMessageByMessageId(msgIdHeader)
+            tell application "Mail"
+                repeat with acct in accounts
+                    repeat with mb in mailboxes of acct
+                        try
+                            set candidate to first message of mb whose message id is msgIdHeader
+                            return {candidate, acct, mb}
+                        end try
+                    end repeat
+                end repeat
+            end tell
+            return missing value
+        end findMessageByMessageId
+
+        on saveAttachment(att, dirPath, fname)
+            try
+                set fullPath to dirPath & "/" & fname
+                tell application "Mail"
+                    save att in (POSIX file fullPath)
+                end tell
+                return fullPath
+            on error errMsg number errNum
+                return ""
+            end try
+        end saveAttachment
+
+        on fetchMessage(messageLocalId, messageIdHeader, includeAttachments, attachmentDir)
+            set located to missing value
+            if messageLocalId is not "" then
+                try
+                    set idNum to messageLocalId as integer
+                    set located to my findMessageById(idNum)
+                end try
+            end if
+            if located is missing value and messageIdHeader is not "" then
+                set located to my findMessageByMessageId(messageIdHeader)
+            end if
+            if located is missing value then return missing value
+
+            set targetMsg to item 1 of located
+            set targetAcct to item 2 of located
+            set targetBox to item 3 of located
+
+            set msgLocalId to ""
+            set msgIdHeaderVal to ""
+            set subjText to ""
+            set fromText to ""
+            set toText to ""
+            set ccText to ""
+            set bccText to ""
+            set replyToText to ""
+            set dateIso to ""
+            set mbName to ""
+            set acctName to ""
+            set allHeadersText to ""
+            set bodyText to ""
+            set attList to {}
+
+            tell application "Mail"
+                try
+                    set msgLocalId to id of targetMsg as text
+                end try
+                try
+                    set msgIdHeaderVal to message id of targetMsg as text
+                end try
+                try
+                    set subjText to subject of targetMsg as text
+                end try
+                try
+                    set fromText to sender of targetMsg as text
+                end try
+                try
+                    set toText to my joinAddresses(to recipients of targetMsg)
+                end try
+                try
+                    set ccText to my joinAddresses(cc recipients of targetMsg)
+                end try
+                try
+                    set bccText to my joinAddresses(bcc recipients of targetMsg)
+                end try
+                try
+                    set replyToText to reply to of targetMsg as text
+                end try
+                try
+                    set msgDate to date received of targetMsg
+                    set dateIso to my isoDate(msgDate)
+                end try
+                try
+                    set mbName to name of targetBox as text
+                end try
+                try
+                    set acctName to name of targetAcct as text
+                end try
+                try
+                    set allHeadersText to all headers of targetMsg as text
+                end try
+                try
+                    set bodyText to content of targetMsg as text
+                end try
+
+                try
+                    repeat with att in mail attachments of targetMsg
+                        set attName to ""
+                        try
+                            set attName to name of att as text
+                        end try
+                        set attSize to "0"
+                        try
+                            set attSize to (file size of att) as text
+                        end try
+                        set attMime to ""
+                        try
+                            set attMime to MIME type of att as text
+                        end try
+                        set savedPath to ""
+                        if includeAttachments and attachmentDir is not "" and attName is not "" then
+                            set savedPath to my saveAttachment(att, attachmentDir, attName)
+                        end if
+                        set end of attList to {attName, attSize, attMime, savedPath}
+                    end repeat
+                end try
+            end tell
+
+            return {msgLocalId, msgIdHeaderVal, subjText, fromText, toText, ccText, bccText, replyToText, dateIso, mbName, acctName, allHeadersText, bodyText, attList}
+        end fetchMessage
         """#
     }
 
