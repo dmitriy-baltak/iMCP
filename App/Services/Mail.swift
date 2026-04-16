@@ -313,6 +313,22 @@ final class MailService: NSObject, Service {
                 "subject": .string(subject),
             ])
         }
+
+        Tool(
+            name: "mail_list_mailboxes",
+            description: "List Mail accounts and their mailboxes",
+            inputSchema: .object(properties: [:], additionalProperties: false),
+            annotations: .init(
+                title: "List Mail Mailboxes",
+                readOnlyHint: true,
+                openWorldHint: false
+            )
+        ) { _ in
+            try await self.activate()
+
+            let result = try await self.runHandler("listMailboxes", arguments: [])
+            return Value.array(self.decodeMailboxList(result))
+        }
     }
 
     // MARK: - Descriptor decoding
@@ -348,6 +364,43 @@ final class MailService: NSObject, Service {
             "account": .string(field(8)),
             "snippet": .string(field(9)),
         ])
+    }
+
+    fileprivate func decodeMailboxList(_ descriptor: NSAppleEventDescriptor) -> [Value] {
+        guard descriptor.descriptorType == typeAEList else { return [] }
+        let count = descriptor.numberOfItems
+        guard count > 0 else { return [] }
+        var accounts: [Value] = []
+        accounts.reserveCapacity(count)
+        for i in 1...count {
+            guard let row = descriptor.atIndex(i),
+                row.descriptorType == typeAEList
+            else { continue }
+            let name = row.atIndex(1)?.stringValue ?? ""
+            let idString = row.atIndex(2)?.stringValue ?? ""
+            let mailboxesDescriptor = row.atIndex(3) ?? .list()
+            var mailboxNames: [Value] = []
+            if mailboxesDescriptor.descriptorType == typeAEList {
+                let boxCount = mailboxesDescriptor.numberOfItems
+                if boxCount > 0 {
+                    for j in 1...boxCount {
+                        if let item = mailboxesDescriptor.atIndex(j),
+                            let name = item.stringValue
+                        {
+                            mailboxNames.append(.string(name))
+                        }
+                    }
+                }
+            }
+            accounts.append(
+                .object([
+                    "name": .string(name),
+                    "id": .string(idString),
+                    "mailboxes": .array(mailboxNames),
+                ])
+            )
+        }
+        return accounts
     }
 
     fileprivate func decodeFetchedMessage(_ descriptor: NSAppleEventDescriptor) -> Value? {
@@ -797,6 +850,32 @@ final class MailService: NSObject, Service {
             end tell
             return "sent"
         end sendMessage
+
+        on listMailboxes()
+            set result to {}
+            tell application "Mail"
+                repeat with acct in accounts
+                    set acctName to ""
+                    try
+                        set acctName to name of acct as text
+                    end try
+                    set acctId to ""
+                    try
+                        set acctId to id of acct as text
+                    end try
+                    set mbNames to {}
+                    try
+                        repeat with mb in mailboxes of acct
+                            try
+                                set end of mbNames to (name of mb as text)
+                            end try
+                        end repeat
+                    end try
+                    set end of result to {acctName, acctId, mbNames}
+                end repeat
+            end tell
+            return result
+        end listMailboxes
         """#
     }
 
