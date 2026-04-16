@@ -9,6 +9,16 @@ private let log = Logger.service("mail")
 private let defaultSearchLimit = 30
 private let maxSearchLimit = 500
 
+extension NSAppleEventDescriptor {
+    // AppleScript "missing value" marker: descriptor of type 'msng' with no data.
+    fileprivate static func mailMissingValue() -> NSAppleEventDescriptor {
+        return NSAppleEventDescriptor(
+            descriptorType: DescType(cMissingValue),
+            data: nil
+        ) ?? NSAppleEventDescriptor.null()
+    }
+}
+
 final class MailService: NSObject, Service {
     static let shared = MailService()
 
@@ -109,7 +119,7 @@ final class MailService: NSObject, Service {
                 )
                 startDescriptor = NSAppleEventDescriptor(date: normalized)
             } else {
-                startDescriptor = .missingValue()
+                startDescriptor = .mailMissingValue()
             }
 
             let endDescriptor: NSAppleEventDescriptor
@@ -124,7 +134,7 @@ final class MailService: NSObject, Service {
                 )
                 endDescriptor = NSAppleEventDescriptor(date: normalized)
             } else {
-                endDescriptor = .missingValue()
+                endDescriptor = .mailMissingValue()
             }
 
             let result = try await self.runHandler(
@@ -196,7 +206,8 @@ final class MailService: NSObject, Service {
                     .appendingPathComponent("iMCP-Mail-\(UUID().uuidString)", isDirectory: true)
                 try FileManager.default.createDirectory(
                     at: dir,
-                    withIntermediateDirectories: true
+                    withIntermediateDirectories: true,
+                    attributes: nil
                 )
                 attachmentDir = dir.path
             } else {
@@ -385,9 +396,9 @@ final class MailService: NSObject, Service {
                 if boxCount > 0 {
                     for j in 1...boxCount {
                         if let item = mailboxesDescriptor.atIndex(j),
-                            let name = item.stringValue
+                            let mailboxName = item.stringValue
                         {
-                            mailboxNames.append(.string(name))
+                            mailboxNames.append(.string(mailboxName))
                         }
                     }
                 }
@@ -852,7 +863,7 @@ final class MailService: NSObject, Service {
         end sendMessage
 
         on listMailboxes()
-            set result to {}
+            set acctList to {}
             tell application "Mail"
                 repeat with acct in accounts
                     set acctName to ""
@@ -871,10 +882,10 @@ final class MailService: NSObject, Service {
                             end try
                         end repeat
                     end try
-                    set end of result to {acctName, acctId, mbNames}
+                    set end of acctList to {acctName, acctId, mbNames}
                 end repeat
             end tell
-            return result
+            return acctList
         end listMailboxes
         """#
     }
