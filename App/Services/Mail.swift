@@ -8,7 +8,6 @@ private let log = Logger.service("mail")
 
 private let defaultSearchLimit = 30
 private let maxSearchLimit = 500
-private let snippetLength = 240
 
 final class MailService: NSObject, Service {
     static let shared = MailService()
@@ -32,20 +31,154 @@ final class MailService: NSObject, Service {
     }
 
     var tools: [Tool] {
-        // Placeholder; real tools are added in subsequent commits.
         Tool(
-            name: "mail_ping",
-            description: "Verify that Mail.app is reachable via AppleEvents",
-            inputSchema: .object(properties: [:], additionalProperties: false),
+            name: "mail_search",
+            description: """
+                Search Mail messages by sender, recipient, subject, body text, \
+                date range, mailbox, or account. Returns message metadata. Note: \
+                body-text matches scan messages individually and may be slow on \
+                large mailboxes — restrict with mailbox/account/date/limit when \
+                possible.
+                """,
+            inputSchema: .object(
+                properties: [
+                    "sender": .string(
+                        description: "Match substring in sender name or email address"
+                    ),
+                    "recipient": .string(
+                        description: "Match substring in to/cc recipient addresses"
+                    ),
+                    "subject": .string(
+                        description: "Match substring in subject"
+                    ),
+                    "body": .string(
+                        description: "Match substring in message body"
+                    ),
+                    "mailbox": .string(
+                        description: "Restrict to mailbox with this name"
+                    ),
+                    "account": .string(
+                        description: "Restrict to account with this name"
+                    ),
+                    "start": .string(
+                        description:
+                            "Start of the date range (inclusive). If timezone is omitted, local time is assumed. Date-only uses local midnight.",
+                        format: .dateTime
+                    ),
+                    "end": .string(
+                        description:
+                            "End of the date range (exclusive). If timezone is omitted, local time is assumed. Date-only uses local midnight.",
+                        format: .dateTime
+                    ),
+                    "limit": .integer(
+                        description: "Maximum messages to return",
+                        default: .int(defaultSearchLimit)
+                    ),
+                ],
+                additionalProperties: false
+            ),
             annotations: .init(
-                title: "Mail Ping",
+                title: "Search Mail",
                 readOnlyHint: true,
                 openWorldHint: false
             )
-        ) { _ in
+        ) { arguments in
             try await self.activate()
-            return Value.object(["ok": .bool(true)])
+
+            let sender = arguments["sender"]?.stringValue ?? ""
+            let recipient = arguments["recipient"]?.stringValue ?? ""
+            let subject = arguments["subject"]?.stringValue ?? ""
+            let body = arguments["body"]?.stringValue ?? ""
+            let mailbox = arguments["mailbox"]?.stringValue ?? ""
+            let account = arguments["account"]?.stringValue ?? ""
+
+            let limit = min(
+                max(arguments["limit"]?.intValue ?? defaultSearchLimit, 1),
+                maxSearchLimit
+            )
+
+            let startDescriptor: NSAppleEventDescriptor
+            if let startString = arguments["start"]?.stringValue,
+                let parsed = ISO8601DateFormatter.parsedLenientISO8601Date(
+                    fromISO8601String: startString
+                )
+            {
+                let normalized = Calendar.current.normalizedStartDate(
+                    from: parsed.date,
+                    isDateOnly: parsed.isDateOnly
+                )
+                startDescriptor = NSAppleEventDescriptor(date: normalized)
+            } else {
+                startDescriptor = .missingValue()
+            }
+
+            let endDescriptor: NSAppleEventDescriptor
+            if let endString = arguments["end"]?.stringValue,
+                let parsed = ISO8601DateFormatter.parsedLenientISO8601Date(
+                    fromISO8601String: endString
+                )
+            {
+                let normalized = Calendar.current.normalizedEndDate(
+                    from: parsed.date,
+                    isDateOnly: parsed.isDateOnly
+                )
+                endDescriptor = NSAppleEventDescriptor(date: normalized)
+            } else {
+                endDescriptor = .missingValue()
+            }
+
+            let result = try await self.runHandler(
+                "searchMessages",
+                arguments: [
+                    NSAppleEventDescriptor(string: sender),
+                    NSAppleEventDescriptor(string: recipient),
+                    NSAppleEventDescriptor(string: subject),
+                    NSAppleEventDescriptor(string: body),
+                    NSAppleEventDescriptor(string: mailbox),
+                    NSAppleEventDescriptor(string: account),
+                    startDescriptor,
+                    endDescriptor,
+                    NSAppleEventDescriptor(int32: Int32(limit)),
+                ]
+            )
+
+            return Value.array(self.decodeMessageRows(result))
         }
+    }
+
+    // MARK: - Descriptor decoding
+
+    fileprivate func decodeMessageRows(_ descriptor: NSAppleEventDescriptor) -> [Value] {
+        guard descriptor.descriptorType == typeAEList else { return [] }
+        let count = descriptor.numberOfItems
+        guard count > 0 else { return [] }
+        var items: [Value] = []
+        items.reserveCapacity(count)
+        for i in 1...count {
+            guard let row = descriptor.atIndex(i) else { continue }
+            items.append(Self.decodeMessageRow(row))
+        }
+        return items
+    }
+
+    private static func decodeMessageRow(_ row: NSAppleEventDescriptor) -> Value {
+        func field(_ index: Int) -> String {
+            guard index <= row.numberOfItems,
+                let item = row.atIndex(index)
+            else { return "" }
+            return item.stringValue ?? ""
+        }
+        return .object([
+            "id": .string(field(1)),
+            "messageId": .string(field(2)),
+            "from": .string(field(3)),
+            "recipients": .string(field(4)),
+            "subject": .string(field(5)),
+            "date": .string(field(6)),
+            "mailbox": .string(field(7)),
+            "account": .string(field(8)),
+            "snippet": .string(field(9)),
+        ])
     }
 
     // MARK: - AppleScript bridge
@@ -79,14 +212,199 @@ final class MailService: NSObject, Service {
     fileprivate var scriptSource: String {
         // Handlers exposed to Swift. Every user-supplied value MUST enter via a
         // handler parameter — never interpolated into this source string.
-        """
+        #"""
         on probeAuthorization()
             tell application "Mail"
                 count of accounts
             end tell
             return true
         end probeAuthorization
-        """
+
+        on isoDate(d)
+            if d is missing value then return ""
+            set y to year of d as integer
+            set mo to (month of d as integer)
+            set dd to day of d as integer
+            set h to hours of d as integer
+            set mi to minutes of d as integer
+            set s to seconds of d as integer
+            return (my zpad(y, 4)) & "-" & (my zpad(mo, 2)) & "-" & ¬
+                (my zpad(dd, 2)) & "T" & (my zpad(h, 2)) & ":" & ¬
+                (my zpad(mi, 2)) & ":" & (my zpad(s, 2))
+        end isoDate
+
+        on zpad(n, w)
+            set s to (n as integer) as text
+            repeat while (count of s) < w
+                set s to "0" & s
+            end repeat
+            return s
+        end zpad
+
+        on joinAddresses(recipientList)
+            set parts to {}
+            try
+                repeat with r in recipientList
+                    try
+                        set end of parts to (address of r as text)
+                    end try
+                end repeat
+            end try
+            set AppleScript's text item delimiters to ", "
+            set joined to parts as text
+            set AppleScript's text item delimiters to ""
+            return joined
+        end joinAddresses
+
+        on snippetOf(rawBody)
+            if rawBody is missing value then return ""
+            try
+                set asText to rawBody as text
+            on error
+                return ""
+            end try
+            if (count of asText) > 240 then
+                return (text 1 thru 240 of asText)
+            else
+                return asText
+            end if
+        end snippetOf
+
+        on mailboxMatches(mb, mailboxName)
+            if mailboxName is "" then return true
+            try
+                return (name of mb as text) is mailboxName
+            on error
+                return false
+            end try
+        end mailboxMatches
+
+        on searchMessages(senderQuery, recipientQuery, subjectQuery, bodyQuery, ¬
+            mailboxName, accountName, startDate, endDate, maxCount)
+            set foundResults to {}
+            tell application "Mail"
+                repeat with acct in accounts
+                    if (count of foundResults) ≥ maxCount then exit repeat
+                    set acctName to ""
+                    try
+                        set acctName to name of acct as text
+                    end try
+                    if (accountName is "") or (acctName is accountName) then
+                        repeat with mb in mailboxes of acct
+                            if (count of foundResults) ≥ maxCount then exit repeat
+                            if my mailboxMatches(mb, mailboxName) then
+                                set mbName to ""
+                                try
+                                    set mbName to name of mb as text
+                                end try
+                                set candidateMessages to missing value
+                                try
+                                    if (startDate is not missing value) and (endDate is not missing value) then
+                                        set candidateMessages to (messages of mb whose date received ≥ startDate and date received < endDate)
+                                    else if startDate is not missing value then
+                                        set candidateMessages to (messages of mb whose date received ≥ startDate)
+                                    else if endDate is not missing value then
+                                        set candidateMessages to (messages of mb whose date received < endDate)
+                                    else
+                                        set candidateMessages to messages of mb
+                                    end if
+                                on error
+                                    set candidateMessages to messages of mb
+                                end try
+                                if candidateMessages is missing value then
+                                    set candidateMessages to {}
+                                end if
+                                repeat with msg in candidateMessages
+                                    if (count of foundResults) ≥ maxCount then exit repeat
+                                    try
+                                        set keepIt to true
+                                        set subjText to ""
+                                        set senderText to ""
+                                        set msgDate to missing value
+                                        try
+                                            set msgDate to date received of msg
+                                        end try
+                                        try
+                                            set subjText to subject of msg as text
+                                        end try
+                                        try
+                                            set senderText to sender of msg as text
+                                        end try
+                                        if (startDate is not missing value) and ((msgDate is missing value) or (msgDate < startDate)) then set keepIt to false
+                                        if keepIt and (endDate is not missing value) and ((msgDate is missing value) or (msgDate ≥ endDate)) then set keepIt to false
+                                        if keepIt and (senderQuery is not "") and (senderText does not contain senderQuery) then set keepIt to false
+                                        if keepIt and (subjectQuery is not "") and (subjText does not contain subjectQuery) then set keepIt to false
+                                        set recipText to ""
+                                        if keepIt and (recipientQuery is not "") then
+                                            set toText to ""
+                                            set ccText to ""
+                                            try
+                                                set toText to my joinAddresses(to recipients of msg)
+                                            end try
+                                            try
+                                                set ccText to my joinAddresses(cc recipients of msg)
+                                            end try
+                                            if toText is not "" and ccText is not "" then
+                                                set recipText to toText & ", " & ccText
+                                            else
+                                                set recipText to toText & ccText
+                                            end if
+                                            if recipText does not contain recipientQuery then set keepIt to false
+                                        else if keepIt then
+                                            set toText to ""
+                                            set ccText to ""
+                                            try
+                                                set toText to my joinAddresses(to recipients of msg)
+                                            end try
+                                            try
+                                                set ccText to my joinAddresses(cc recipients of msg)
+                                            end try
+                                            if toText is not "" and ccText is not "" then
+                                                set recipText to toText & ", " & ccText
+                                            else
+                                                set recipText to toText & ccText
+                                            end if
+                                        end if
+                                        set bodyText to ""
+                                        if keepIt and (bodyQuery is not "") then
+                                            try
+                                                set bodyText to content of msg as text
+                                            end try
+                                            if bodyText does not contain bodyQuery then set keepIt to false
+                                        end if
+                                        if keepIt then
+                                            set snipText to ""
+                                            if bodyText is not "" then
+                                                set snipText to my snippetOf(bodyText)
+                                            else
+                                                try
+                                                    set snipText to my snippetOf(content of msg)
+                                                end try
+                                            end if
+                                            set msgIdHeader to ""
+                                            try
+                                                set msgIdHeader to message id of msg as text
+                                            end try
+                                            set dateIso to ""
+                                            if msgDate is not missing value then
+                                                set dateIso to my isoDate(msgDate)
+                                            end if
+                                            set msgLocalId to ""
+                                            try
+                                                set msgLocalId to id of msg as text
+                                            end try
+                                            set end of foundResults to {msgLocalId, msgIdHeader, senderText, recipText, subjText, dateIso, mbName, acctName, snipText}
+                                        end if
+                                    end try
+                                end repeat
+                            end if
+                        end repeat
+                    end if
+                end repeat
+            end tell
+            return foundResults
+        end searchMessages
+        """#
     }
 
     private func loadScript() throws -> NSAppleScript {
