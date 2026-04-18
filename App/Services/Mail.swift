@@ -8,13 +8,17 @@ private let log = Logger.service("mail")
 
 private let defaultSearchLimit = 30
 private let maxSearchLimit = 500
+private let defaultScanLimit = 100
+private let maxScanLimit = 500
 
 extension NSAppleEventDescriptor {
-    // AppleScript "missing value" marker: descriptor of type 'msng' with no data.
+    // AppleScript's `missing value` is a descriptor whose type is cMissingValue
+    // ('msng') with zero bytes of data. Passing `data: nil` returns nil, so we
+    // must pass an empty Data() instead.
     fileprivate static func mailMissingValue() -> NSAppleEventDescriptor {
         return NSAppleEventDescriptor(
             descriptorType: DescType(cMissingValue),
-            data: nil
+            data: Data()
         ) ?? NSAppleEventDescriptor.null()
     }
 }
@@ -47,10 +51,10 @@ final class MailService: NSObject, @unchecked Sendable, Service {
             name: "mail_search",
             description: """
                 Search Mail messages by sender, recipient, subject, body text, \
-                date range, mailbox, or account. Returns message metadata. Note: \
-                body-text matches scan messages individually and may be slow on \
-                large mailboxes — restrict with mailbox/account/date/limit when \
-                possible.
+                date range, mailbox, or account. Returns message metadata. \
+                Scans the most-recent `scan_limit` messages per mailbox (newest \
+                first); paginate older mail by incrementing `scan_offset` by \
+                `scan_limit`.
                 """,
             inputSchema: .object(
                 properties: [
@@ -86,6 +90,16 @@ final class MailService: NSObject, @unchecked Sendable, Service {
                         description: "Maximum messages to return",
                         default: .int(defaultSearchLimit)
                     ),
+                    "scan_limit": .integer(
+                        description:
+                            "Maximum recent messages to scan per mailbox (newest-first). Use with scan_offset to paginate.",
+                        default: .int(defaultScanLimit)
+                    ),
+                    "scan_offset": .integer(
+                        description:
+                            "Skip this many recent messages per mailbox before scanning. Use with scan_limit to paginate through older messages.",
+                        default: .int(0)
+                    ),
                 ],
                 additionalProperties: false
             ),
@@ -108,6 +122,11 @@ final class MailService: NSObject, @unchecked Sendable, Service {
                 max(arguments["limit"]?.intValue ?? defaultSearchLimit, 1),
                 maxSearchLimit
             )
+            let scanLimit = min(
+                max(arguments["scan_limit"]?.intValue ?? defaultScanLimit, 1),
+                maxScanLimit
+            )
+            let scanOffset = max(arguments["scan_offset"]?.intValue ?? 0, 0)
 
             let startDescriptor: NSAppleEventDescriptor
             if let startString = arguments["start"]?.stringValue,
@@ -151,6 +170,8 @@ final class MailService: NSObject, @unchecked Sendable, Service {
                     startDescriptor,
                     endDescriptor,
                     NSAppleEventDescriptor(int32: Int32(limit)),
+                    NSAppleEventDescriptor(int32: Int32(scanLimit)),
+                    NSAppleEventDescriptor(int32: Int32(scanOffset)),
                 ]
             )
 
@@ -573,8 +594,15 @@ final class MailService: NSObject, @unchecked Sendable, Service {
         end mailboxMatches
 
         on searchMessages(senderQuery, recipientQuery, subjectQuery, bodyQuery, ¬
-            mailboxName, accountName, startDate, endDate, maxCount)
+            mailboxName, accountName, startDate, endDate, maxCount, scanLimit, scanOffset)
+            -- Messages inside a Mail.app mailbox are indexed newest-first (index 1 = newest).
+            -- We scan a bounded window [scanOffset+1 .. scanOffset+scanLimit] per mailbox so
+            -- a call stays fast on huge IMAP mailboxes (e.g. Gmail). Callers paginate by
+            -- incrementing scanOffset by scanLimit. Because the window is chronologically
+            -- ordered, if a message older than startDate is seen we stop the mailbox early.
             set foundResults to {}
+            set startIndex to scanOffset + 1
+            set endIndex to scanOffset + scanLimit
             tell application "Mail"
                 repeat with acct in accounts
                     if (count of foundResults) ≥ maxCount then exit repeat
@@ -590,106 +618,126 @@ final class MailService: NSObject, @unchecked Sendable, Service {
                                 try
                                     set mbName to name of mb as text
                                 end try
-                                set candidateMessages to missing value
+                                set totalMsgs to 0
                                 try
-                                    if (startDate is not missing value) and (endDate is not missing value) then
-                                        set candidateMessages to (messages of mb whose date received ≥ startDate and date received < endDate)
-                                    else if startDate is not missing value then
-                                        set candidateMessages to (messages of mb whose date received ≥ startDate)
-                                    else if endDate is not missing value then
-                                        set candidateMessages to (messages of mb whose date received < endDate)
-                                    else
-                                        set candidateMessages to messages of mb
-                                    end if
-                                on error
-                                    set candidateMessages to messages of mb
+                                    set totalMsgs to count of messages of mb
                                 end try
-                                if candidateMessages is missing value then
-                                    set candidateMessages to {}
-                                end if
-                                repeat with msg in candidateMessages
-                                    if (count of foundResults) ≥ maxCount then exit repeat
+                                if totalMsgs ≥ startIndex then
+                                    set effEnd to endIndex
+                                    if effEnd > totalMsgs then set effEnd to totalMsgs
+                                    set slice to {}
                                     try
-                                        set keepIt to true
-                                        set subjText to ""
-                                        set senderText to ""
-                                        set msgDate to missing value
-                                        try
-                                            set msgDate to date received of msg
-                                        end try
-                                        try
-                                            set subjText to subject of msg as text
-                                        end try
-                                        try
-                                            set senderText to sender of msg as text
-                                        end try
-                                        if (startDate is not missing value) and ((msgDate is missing value) or (msgDate < startDate)) then set keepIt to false
-                                        if keepIt and (endDate is not missing value) and ((msgDate is missing value) or (msgDate ≥ endDate)) then set keepIt to false
-                                        if keepIt and (senderQuery is not "") and (senderText does not contain senderQuery) then set keepIt to false
-                                        if keepIt and (subjectQuery is not "") and (subjText does not contain subjectQuery) then set keepIt to false
-                                        set recipText to ""
-                                        if keepIt and (recipientQuery is not "") then
-                                            set toText to ""
-                                            set ccText to ""
-                                            try
-                                                set toText to my joinAddresses(to recipients of msg)
-                                            end try
-                                            try
-                                                set ccText to my joinAddresses(cc recipients of msg)
-                                            end try
-                                            if toText is not "" and ccText is not "" then
-                                                set recipText to toText & ", " & ccText
-                                            else
-                                                set recipText to toText & ccText
-                                            end if
-                                            if recipText does not contain recipientQuery then set keepIt to false
-                                        else if keepIt then
-                                            set toText to ""
-                                            set ccText to ""
-                                            try
-                                                set toText to my joinAddresses(to recipients of msg)
-                                            end try
-                                            try
-                                                set ccText to my joinAddresses(cc recipients of msg)
-                                            end try
-                                            if toText is not "" and ccText is not "" then
-                                                set recipText to toText & ", " & ccText
-                                            else
-                                                set recipText to toText & ccText
-                                            end if
-                                        end if
-                                        set bodyText to ""
-                                        if keepIt and (bodyQuery is not "") then
-                                            try
-                                                set bodyText to content of msg as text
-                                            end try
-                                            if bodyText does not contain bodyQuery then set keepIt to false
-                                        end if
-                                        if keepIt then
-                                            set snipText to ""
-                                            if bodyText is not "" then
-                                                set snipText to my snippetOf(bodyText)
-                                            else
-                                                try
-                                                    set snipText to my snippetOf(content of msg)
-                                                end try
-                                            end if
-                                            set msgIdHeader to ""
-                                            try
-                                                set msgIdHeader to message id of msg as text
-                                            end try
-                                            set dateIso to ""
-                                            if msgDate is not missing value then
-                                                set dateIso to my isoDate(msgDate)
-                                            end if
-                                            set msgLocalId to ""
-                                            try
-                                                set msgLocalId to id of msg as text
-                                            end try
-                                            set end of foundResults to {msgLocalId, msgIdHeader, senderText, recipText, subjText, dateIso, mbName, acctName, snipText}
-                                        end if
+                                        set slice to messages startIndex thru effEnd of mb
                                     end try
-                                end repeat
+                                    -- `X is missing value` can return false for descriptors
+                                    -- built outside AppleScript even when their class reports
+                                    -- `missing value`. Class-based check is reliable.
+                                    set hasStart to (class of startDate is not missing value)
+                                    set hasEnd to (class of endDate is not missing value)
+                                    repeat with msg in slice
+                                        if (count of foundResults) ≥ maxCount then exit repeat
+                                        try
+                                            set msgDate to missing value
+                                            try
+                                                set msgDate to date received of msg
+                                            end try
+                                            -- Early exit: once we're past startDate the rest
+                                            -- of this mailbox slice is even older.
+                                            if hasStart ¬
+                                                and (msgDate is not missing value) ¬
+                                                and (msgDate < startDate) then
+                                                exit repeat
+                                            end if
+                                            set keepIt to true
+                                            if hasStart ¬
+                                                and ((msgDate is missing value) or (msgDate < startDate)) then set keepIt to false
+                                            if keepIt and hasEnd ¬
+                                                and ((msgDate is missing value) or (msgDate ≥ endDate)) then set keepIt to false
+                                            set senderText to ""
+                                            if keepIt and (senderQuery is not "") then
+                                                try
+                                                    set senderText to sender of msg as text
+                                                end try
+                                                if senderText does not contain senderQuery then set keepIt to false
+                                            end if
+                                            set subjText to ""
+                                            if keepIt and (subjectQuery is not "") then
+                                                try
+                                                    set subjText to subject of msg as text
+                                                end try
+                                                if subjText does not contain subjectQuery then set keepIt to false
+                                            end if
+                                            set recipText to ""
+                                            if keepIt and (recipientQuery is not "") then
+                                                set toText to ""
+                                                set ccText to ""
+                                                try
+                                                    set toText to my joinAddresses(to recipients of msg)
+                                                end try
+                                                try
+                                                    set ccText to my joinAddresses(cc recipients of msg)
+                                                end try
+                                                if toText is not "" and ccText is not "" then
+                                                    set recipText to toText & ", " & ccText
+                                                else
+                                                    set recipText to toText & ccText
+                                                end if
+                                                if recipText does not contain recipientQuery then set keepIt to false
+                                            end if
+                                            set bodyText to ""
+                                            if keepIt and (bodyQuery is not "") then
+                                                try
+                                                    set bodyText to content of msg as text
+                                                end try
+                                                if bodyText does not contain bodyQuery then set keepIt to false
+                                            end if
+                                            if keepIt then
+                                                if senderText is "" then
+                                                    try
+                                                        set senderText to sender of msg as text
+                                                    end try
+                                                end if
+                                                if subjText is "" then
+                                                    try
+                                                        set subjText to subject of msg as text
+                                                    end try
+                                                end if
+                                                if recipText is "" then
+                                                    set toText to ""
+                                                    set ccText to ""
+                                                    try
+                                                        set toText to my joinAddresses(to recipients of msg)
+                                                    end try
+                                                    try
+                                                        set ccText to my joinAddresses(cc recipients of msg)
+                                                    end try
+                                                    if toText is not "" and ccText is not "" then
+                                                        set recipText to toText & ", " & ccText
+                                                    else
+                                                        set recipText to toText & ccText
+                                                    end if
+                                                end if
+                                                set snipText to ""
+                                                if bodyText is not "" then
+                                                    set snipText to my snippetOf(bodyText)
+                                                end if
+                                                set msgIdHeader to ""
+                                                try
+                                                    set msgIdHeader to message id of msg as text
+                                                end try
+                                                set dateIso to ""
+                                                if msgDate is not missing value then
+                                                    set dateIso to my isoDate(msgDate)
+                                                end if
+                                                set msgLocalId to ""
+                                                try
+                                                    set msgLocalId to id of msg as text
+                                                end try
+                                                set end of foundResults to {msgLocalId, msgIdHeader, senderText, recipText, subjText, dateIso, mbName, acctName, snipText}
+                                            end if
+                                        end try
+                                    end repeat
+                                end if
                             end if
                         end repeat
                     end if
