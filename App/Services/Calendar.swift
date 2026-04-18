@@ -19,7 +19,14 @@ final class CalendarService: Service {
     }
 
     func activate() async throws {
-        try await eventStore.requestFullAccessToEvents()
+        let granted = try await eventStore.requestFullAccessToEvents()
+        guard granted else {
+            throw NSError(
+                domain: "CalendarError",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Calendar access not authorized"]
+            )
+        }
     }
 
     var tools: [Tool] {
