@@ -17,10 +17,11 @@ struct ServiceToggleView: View {
         HStack {
             Button(action: {
                 config.binding.wrappedValue.toggle()
-                if config.binding.wrappedValue && !isServiceActivated {
+                if config.binding.wrappedValue {
                     Task {
                         do {
                             try await config.service.activate()
+                            isServiceActivated = true
                         } catch {
                             config.binding.wrappedValue = false
                         }
