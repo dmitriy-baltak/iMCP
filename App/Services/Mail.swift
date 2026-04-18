@@ -8,8 +8,6 @@ private let log = Logger.service("mail")
 
 private let defaultSearchLimit = 30
 private let maxSearchLimit = 500
-private let defaultScanLimit = 100
-private let maxScanLimit = 500
 
 extension NSAppleEventDescriptor {
     // AppleScript's `missing value` is a descriptor whose type is cMissingValue
@@ -28,6 +26,9 @@ final class MailService: NSObject, @unchecked Sendable, Service {
 
     private let scriptQueue = DispatchQueue(label: "me.mattt.iMCP.mail-script")
     private var cachedScript: NSAppleScript?
+
+    private let accountMappingLock = NSLock()
+    private var cachedAccountMapping: [(uuid: String, name: String)]?
 
     private struct UncheckedBox<T>: @unchecked Sendable { let value: T }
 
@@ -50,11 +51,14 @@ final class MailService: NSObject, @unchecked Sendable, Service {
         Tool(
             name: "mail_search",
             description: """
-                Search Mail messages by sender, recipient, subject, body text, \
-                date range, mailbox, or account. Returns message metadata. \
-                Scans the most-recent `scan_limit` messages per mailbox (newest \
-                first); paginate older mail by incrementing `scan_offset` by \
-                `scan_limit`.
+                Search Mail messages by sender, recipient, subject, body \
+                snippet, date range, mailbox, or account. Reads Mail.app's \
+                local envelope index directly, so queries run in \
+                milliseconds across the full mailbox history. The `body` \
+                filter matches against the cached body snippet only; for \
+                exact full-body matching use `mail_fetch` after narrowing by \
+                other fields. The returned `id` is the Mail envelope-index \
+                row id — pass it back as `mail_fetch.id`.
                 """,
             inputSchema: .object(
                 properties: [
@@ -62,16 +66,17 @@ final class MailService: NSObject, @unchecked Sendable, Service {
                         description: "Match substring in sender name or email address"
                     ),
                     "recipient": .string(
-                        description: "Match substring in to/cc recipient addresses"
+                        description: "Match substring in to/cc/bcc recipient addresses"
                     ),
                     "subject": .string(
                         description: "Match substring in subject"
                     ),
                     "body": .string(
-                        description: "Match substring in message body"
+                        description:
+                            "Match substring in body snippet (cached preview only; not full body)"
                     ),
                     "mailbox": .string(
-                        description: "Restrict to mailbox with this name"
+                        description: "Restrict to mailbox with this name (e.g. INBOX, Sent)"
                     ),
                     "account": .string(
                         description: "Restrict to account with this name"
@@ -90,16 +95,6 @@ final class MailService: NSObject, @unchecked Sendable, Service {
                         description: "Maximum messages to return",
                         default: .int(defaultSearchLimit)
                     ),
-                    "scan_limit": .integer(
-                        description:
-                            "Maximum recent messages to scan per mailbox (newest-first). Use with scan_offset to paginate.",
-                        default: .int(defaultScanLimit)
-                    ),
-                    "scan_offset": .integer(
-                        description:
-                            "Skip this many recent messages per mailbox before scanning. Use with scan_limit to paginate through older messages.",
-                        default: .int(0)
-                    ),
                 ],
                 additionalProperties: false
             ),
@@ -110,6 +105,7 @@ final class MailService: NSObject, @unchecked Sendable, Service {
             )
         ) { arguments in
             try await self.activate()
+            try await MailEnvelopeDatabase.shared.activate()
 
             let sender = arguments["sender"]?.stringValue ?? ""
             let recipient = arguments["recipient"]?.stringValue ?? ""
@@ -122,60 +118,78 @@ final class MailService: NSObject, @unchecked Sendable, Service {
                 max(arguments["limit"]?.intValue ?? defaultSearchLimit, 1),
                 maxSearchLimit
             )
-            let scanLimit = min(
-                max(arguments["scan_limit"]?.intValue ?? defaultScanLimit, 1),
-                maxScanLimit
-            )
-            let scanOffset = max(arguments["scan_offset"]?.intValue ?? 0, 0)
 
-            let startDescriptor: NSAppleEventDescriptor
+            var filters = MailEnvelopeFilters()
+            filters.sender = sender
+            filters.recipient = recipient
+            filters.subject = subject
+            filters.snippet = body
+            filters.mailboxName = mailbox
+            filters.limit = limit
+
+            // Resolve `account` (which may be a display name OR a UUID) to the
+            // UUID stored in the envelope index. Bail with an empty list if
+            // the caller passed a name that matches no known account, so we
+            // don't silently widen the query.
+            let mapping = try await self.accountMapping()
+            let uuidToName = Dictionary(
+                mapping.map { ($0.uuid, $0.name) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            if !account.isEmpty {
+                if let match = mapping.first(where: {
+                    $0.name.caseInsensitiveCompare(account) == .orderedSame
+                }) {
+                    filters.accountUUID = match.uuid
+                } else if mapping.contains(where: {
+                    $0.uuid.caseInsensitiveCompare(account) == .orderedSame
+                }) {
+                    filters.accountUUID = account
+                } else {
+                    return Value.array([])
+                }
+            }
+
             if let startString = arguments["start"]?.stringValue,
                 let parsed = ISO8601DateFormatter.parsedLenientISO8601Date(
                     fromISO8601String: startString
                 )
             {
-                let normalized = Calendar.current.normalizedStartDate(
+                filters.start = Calendar.current.normalizedStartDate(
                     from: parsed.date,
                     isDateOnly: parsed.isDateOnly
                 )
-                startDescriptor = NSAppleEventDescriptor(date: normalized)
-            } else {
-                startDescriptor = .mailMissingValue()
             }
-
-            let endDescriptor: NSAppleEventDescriptor
             if let endString = arguments["end"]?.stringValue,
                 let parsed = ISO8601DateFormatter.parsedLenientISO8601Date(
                     fromISO8601String: endString
                 )
             {
-                let normalized = Calendar.current.normalizedEndDate(
+                filters.end = Calendar.current.normalizedEndDate(
                     from: parsed.date,
                     isDateOnly: parsed.isDateOnly
                 )
-                endDescriptor = NSAppleEventDescriptor(date: normalized)
-            } else {
-                endDescriptor = .mailMissingValue()
             }
 
-            let result = try await self.runHandler(
-                "searchMessages",
-                arguments: [
-                    NSAppleEventDescriptor(string: sender),
-                    NSAppleEventDescriptor(string: recipient),
-                    NSAppleEventDescriptor(string: subject),
-                    NSAppleEventDescriptor(string: body),
-                    NSAppleEventDescriptor(string: mailbox),
-                    NSAppleEventDescriptor(string: account),
-                    startDescriptor,
-                    endDescriptor,
-                    NSAppleEventDescriptor(int32: Int32(limit)),
-                    NSAppleEventDescriptor(int32: Int32(scanLimit)),
-                    NSAppleEventDescriptor(int32: Int32(scanOffset)),
-                ]
-            )
-
-            return Value.array(self.decodeMessageRows(result))
+            let rows = try MailEnvelopeDatabase.shared.search(filters)
+            let isoFormatter = ISO8601DateFormatter()
+            isoFormatter.formatOptions = [.withInternetDateTime]
+            let values: [Value] = rows.map { row in
+                let accountName = uuidToName[row.accountUUID] ?? row.accountUUID
+                let dateString = row.date.map { isoFormatter.string(from: $0) } ?? ""
+                return .object([
+                    "id": .string(String(row.rowId)),
+                    "messageId": .string(row.messageIdHeader),
+                    "from": .string(row.from),
+                    "recipients": .string(row.recipients),
+                    "subject": .string(row.subject),
+                    "date": .string(dateString),
+                    "mailbox": .string(row.mailboxName),
+                    "account": .string(accountName),
+                    "snippet": .string(row.snippet),
+                ])
+            }
+            return Value.array(values)
         }
 
         Tool(
@@ -214,13 +228,27 @@ final class MailService: NSObject, @unchecked Sendable, Service {
             try await self.activate()
 
             let localId = arguments["id"]?.stringValue ?? ""
-            let messageIdHeader = arguments["message_id"]?.stringValue ?? ""
+            var messageIdHeader = arguments["message_id"]?.stringValue ?? ""
             let includeAttachments = arguments["include_attachments"]?.boolValue ?? false
 
             guard !localId.isEmpty || !messageIdHeader.isEmpty else {
                 throw MailError.invalidArgument(
                     "Provide either `id` or `message_id` to identify the message."
                 )
+            }
+
+            // `id` from mail_search is the envelope-index ROWID. Look up its
+            // Message-ID header via SQLite so the AppleScript fetch can find
+            // the message without per-mailbox scans. If the envelope DB
+            // isn't accessible we pass the raw id through — the AppleScript
+            // fallback treats it as Mail.app's local id.
+            if messageIdHeader.isEmpty, let rowId = Int64(localId) {
+                try? await MailEnvelopeDatabase.shared.activate()
+                if let envRow = try? MailEnvelopeDatabase.shared.findMessage(byRowId: rowId),
+                    !envRow.messageIdHeader.isEmpty
+                {
+                    messageIdHeader = envRow.messageIdHeader
+                }
             }
 
             let attachmentDir: String
@@ -237,11 +265,19 @@ final class MailService: NSObject, @unchecked Sendable, Service {
                 attachmentDir = ""
             }
 
+            // Mail.app's AppleScript `message id` property returns the header
+            // value without angle brackets, but the envelope index and most
+            // tooling surface it with brackets. Strip them so callers can
+            // paste either form.
+            let normalizedMessageId = messageIdHeader
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
+
             let result = try await self.runHandler(
                 "fetchMessage",
                 arguments: [
                     NSAppleEventDescriptor(string: localId),
-                    NSAppleEventDescriptor(string: messageIdHeader),
+                    NSAppleEventDescriptor(string: normalizedMessageId),
                     NSAppleEventDescriptor(boolean: includeAttachments),
                     NSAppleEventDescriptor(string: attachmentDir),
                 ]
@@ -349,6 +385,70 @@ final class MailService: NSObject, @unchecked Sendable, Service {
         }
 
         Tool(
+            name: "mail_delete",
+            description: """
+                Move a Mail message to Trash. Identify the message by its \
+                envelope rowid (`id` from mail_search) or its Message-ID \
+                header. Deletion is reversible via Mail's Trash mailbox.
+                """,
+            inputSchema: .object(
+                properties: [
+                    "id": .string(
+                        description:
+                            "Envelope-index rowid (as returned by mail_search)"
+                    ),
+                    "message_id": .string(
+                        description:
+                            "RFC 5322 Message-ID header value (angle brackets optional)"
+                    ),
+                ],
+                additionalProperties: false
+            ),
+            annotations: .init(
+                title: "Delete Mail Message",
+                destructiveHint: true,
+                openWorldHint: false
+            )
+        ) { arguments in
+            try await self.activate()
+
+            let localId = arguments["id"]?.stringValue ?? ""
+            var messageIdHeader = arguments["message_id"]?.stringValue ?? ""
+
+            guard !localId.isEmpty || !messageIdHeader.isEmpty else {
+                throw MailError.invalidArgument(
+                    "Provide either `id` or `message_id` to identify the message."
+                )
+            }
+
+            if messageIdHeader.isEmpty, let rowId = Int64(localId) {
+                try? await MailEnvelopeDatabase.shared.activate()
+                if let envRow = try? MailEnvelopeDatabase.shared.findMessage(byRowId: rowId),
+                    !envRow.messageIdHeader.isEmpty
+                {
+                    messageIdHeader = envRow.messageIdHeader
+                }
+            }
+
+            let normalizedMessageId = messageIdHeader
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
+
+            let result = try await self.runHandler(
+                "deleteMessage",
+                arguments: [
+                    NSAppleEventDescriptor(string: localId),
+                    NSAppleEventDescriptor(string: normalizedMessageId),
+                ]
+            )
+            let status = result.stringValue ?? "deleted"
+            return Value.object([
+                "status": .string(status),
+                "messageId": .string(normalizedMessageId),
+            ])
+        }
+
+        Tool(
             name: "mail_list_mailboxes",
             description: "List Mail accounts and their mailboxes",
             inputSchema: .object(properties: [:], additionalProperties: false),
@@ -365,40 +465,46 @@ final class MailService: NSObject, @unchecked Sendable, Service {
         }
     }
 
-    // MARK: - Descriptor decoding
+    // MARK: - Account mapping
 
-    fileprivate func decodeMessageRows(_ descriptor: NSAppleEventDescriptor) -> [Value] {
+    /// Returns cached `(accountUUID, displayName)` pairs for every Mail
+    /// account, populated on first call by invoking the AppleScript
+    /// `listMailboxes` handler. The UUID is Mail.app's internal account id,
+    /// which matches the host component of mailbox URLs stored in the
+    /// envelope index — so it can be used to translate envelope results back
+    /// to human-readable account names.
+    fileprivate func accountMapping() async throws -> [(uuid: String, name: String)] {
+        if let cached = accountMappingLock.withLock({ cachedAccountMapping }) {
+            return cached
+        }
+        let result = try await runHandler("listMailboxes", arguments: [])
+        let mapping = Self.decodeAccountMappingRows(result)
+        accountMappingLock.withLock { cachedAccountMapping = mapping }
+        return mapping
+    }
+
+    private static func decodeAccountMappingRows(
+        _ descriptor: NSAppleEventDescriptor
+    ) -> [(uuid: String, name: String)] {
         guard descriptor.descriptorType == typeAEList else { return [] }
         let count = descriptor.numberOfItems
         guard count > 0 else { return [] }
-        var items: [Value] = []
-        items.reserveCapacity(count)
+        var mapping: [(uuid: String, name: String)] = []
+        mapping.reserveCapacity(count)
         for i in 1...count {
-            guard let row = descriptor.atIndex(i) else { continue }
-            items.append(Self.decodeMessageRow(row))
+            guard let row = descriptor.atIndex(i),
+                row.descriptorType == typeAEList
+            else { continue }
+            let name = row.atIndex(1)?.stringValue ?? ""
+            let idString = row.atIndex(2)?.stringValue ?? ""
+            if !idString.isEmpty {
+                mapping.append((idString, name))
+            }
         }
-        return items
+        return mapping
     }
 
-    private static func decodeMessageRow(_ row: NSAppleEventDescriptor) -> Value {
-        func field(_ index: Int) -> String {
-            guard index <= row.numberOfItems,
-                let item = row.atIndex(index)
-            else { return "" }
-            return item.stringValue ?? ""
-        }
-        return .object([
-            "id": .string(field(1)),
-            "messageId": .string(field(2)),
-            "from": .string(field(3)),
-            "recipients": .string(field(4)),
-            "subject": .string(field(5)),
-            "date": .string(field(6)),
-            "mailbox": .string(field(7)),
-            "account": .string(field(8)),
-            "snippet": .string(field(9)),
-        ])
-    }
+    // MARK: - Descriptor decoding
 
     fileprivate func decodeMailboxList(_ descriptor: NSAppleEventDescriptor) -> [Value] {
         guard descriptor.descriptorType == typeAEList else { return [] }
@@ -570,182 +676,6 @@ final class MailService: NSObject, @unchecked Sendable, Service {
             return joined
         end joinAddresses
 
-        on snippetOf(rawBody)
-            if rawBody is missing value then return ""
-            try
-                set asText to rawBody as text
-            on error
-                return ""
-            end try
-            if (count of asText) > 240 then
-                return (text 1 thru 240 of asText)
-            else
-                return asText
-            end if
-        end snippetOf
-
-        on mailboxMatches(mb, mailboxName)
-            if mailboxName is "" then return true
-            try
-                return (name of mb as text) is mailboxName
-            on error
-                return false
-            end try
-        end mailboxMatches
-
-        on searchMessages(senderQuery, recipientQuery, subjectQuery, bodyQuery, ¬
-            mailboxName, accountName, startDate, endDate, maxCount, scanLimit, scanOffset)
-            -- Messages inside a Mail.app mailbox are indexed newest-first (index 1 = newest).
-            -- We scan a bounded window [scanOffset+1 .. scanOffset+scanLimit] per mailbox so
-            -- a call stays fast on huge IMAP mailboxes (e.g. Gmail). Callers paginate by
-            -- incrementing scanOffset by scanLimit. Because the window is chronologically
-            -- ordered, if a message older than startDate is seen we stop the mailbox early.
-            set foundResults to {}
-            set startIndex to scanOffset + 1
-            set endIndex to scanOffset + scanLimit
-            tell application "Mail"
-                repeat with acct in accounts
-                    if (count of foundResults) ≥ maxCount then exit repeat
-                    set acctName to ""
-                    try
-                        set acctName to name of acct as text
-                    end try
-                    if (accountName is "") or (acctName is accountName) then
-                        repeat with mb in mailboxes of acct
-                            if (count of foundResults) ≥ maxCount then exit repeat
-                            if my mailboxMatches(mb, mailboxName) then
-                                set mbName to ""
-                                try
-                                    set mbName to name of mb as text
-                                end try
-                                set totalMsgs to 0
-                                try
-                                    set totalMsgs to count of messages of mb
-                                end try
-                                if totalMsgs ≥ startIndex then
-                                    set effEnd to endIndex
-                                    if effEnd > totalMsgs then set effEnd to totalMsgs
-                                    set slice to {}
-                                    try
-                                        set slice to messages startIndex thru effEnd of mb
-                                    end try
-                                    -- `X is missing value` can return false for descriptors
-                                    -- built outside AppleScript even when their class reports
-                                    -- `missing value`. Class-based check is reliable.
-                                    set hasStart to (class of startDate is not missing value)
-                                    set hasEnd to (class of endDate is not missing value)
-                                    repeat with msg in slice
-                                        if (count of foundResults) ≥ maxCount then exit repeat
-                                        try
-                                            set msgDate to missing value
-                                            try
-                                                set msgDate to date received of msg
-                                            end try
-                                            -- Early exit: once we're past startDate the rest
-                                            -- of this mailbox slice is even older.
-                                            if hasStart ¬
-                                                and (msgDate is not missing value) ¬
-                                                and (msgDate < startDate) then
-                                                exit repeat
-                                            end if
-                                            set keepIt to true
-                                            if hasStart ¬
-                                                and ((msgDate is missing value) or (msgDate < startDate)) then set keepIt to false
-                                            if keepIt and hasEnd ¬
-                                                and ((msgDate is missing value) or (msgDate ≥ endDate)) then set keepIt to false
-                                            set senderText to ""
-                                            if keepIt and (senderQuery is not "") then
-                                                try
-                                                    set senderText to sender of msg as text
-                                                end try
-                                                if senderText does not contain senderQuery then set keepIt to false
-                                            end if
-                                            set subjText to ""
-                                            if keepIt and (subjectQuery is not "") then
-                                                try
-                                                    set subjText to subject of msg as text
-                                                end try
-                                                if subjText does not contain subjectQuery then set keepIt to false
-                                            end if
-                                            set recipText to ""
-                                            if keepIt and (recipientQuery is not "") then
-                                                set toText to ""
-                                                set ccText to ""
-                                                try
-                                                    set toText to my joinAddresses(to recipients of msg)
-                                                end try
-                                                try
-                                                    set ccText to my joinAddresses(cc recipients of msg)
-                                                end try
-                                                if toText is not "" and ccText is not "" then
-                                                    set recipText to toText & ", " & ccText
-                                                else
-                                                    set recipText to toText & ccText
-                                                end if
-                                                if recipText does not contain recipientQuery then set keepIt to false
-                                            end if
-                                            set bodyText to ""
-                                            if keepIt and (bodyQuery is not "") then
-                                                try
-                                                    set bodyText to content of msg as text
-                                                end try
-                                                if bodyText does not contain bodyQuery then set keepIt to false
-                                            end if
-                                            if keepIt then
-                                                if senderText is "" then
-                                                    try
-                                                        set senderText to sender of msg as text
-                                                    end try
-                                                end if
-                                                if subjText is "" then
-                                                    try
-                                                        set subjText to subject of msg as text
-                                                    end try
-                                                end if
-                                                if recipText is "" then
-                                                    set toText to ""
-                                                    set ccText to ""
-                                                    try
-                                                        set toText to my joinAddresses(to recipients of msg)
-                                                    end try
-                                                    try
-                                                        set ccText to my joinAddresses(cc recipients of msg)
-                                                    end try
-                                                    if toText is not "" and ccText is not "" then
-                                                        set recipText to toText & ", " & ccText
-                                                    else
-                                                        set recipText to toText & ccText
-                                                    end if
-                                                end if
-                                                set snipText to ""
-                                                if bodyText is not "" then
-                                                    set snipText to my snippetOf(bodyText)
-                                                end if
-                                                set msgIdHeader to ""
-                                                try
-                                                    set msgIdHeader to message id of msg as text
-                                                end try
-                                                set dateIso to ""
-                                                if msgDate is not missing value then
-                                                    set dateIso to my isoDate(msgDate)
-                                                end if
-                                                set msgLocalId to ""
-                                                try
-                                                    set msgLocalId to id of msg as text
-                                                end try
-                                                set end of foundResults to {msgLocalId, msgIdHeader, senderText, recipText, subjText, dateIso, mbName, acctName, snipText}
-                                            end if
-                                        end try
-                                    end repeat
-                                end if
-                            end if
-                        end repeat
-                    end if
-                end repeat
-            end tell
-            return foundResults
-        end searchMessages
-
         on findMessageById(idNum)
             tell application "Mail"
                 repeat with acct in accounts
@@ -911,6 +841,27 @@ final class MailService: NSObject, @unchecked Sendable, Service {
             end tell
             return "sent"
         end sendMessage
+
+        on deleteMessage(messageLocalId, messageIdHeader)
+            set located to missing value
+            if messageLocalId is not "" then
+                try
+                    set idNum to messageLocalId as integer
+                    set located to my findMessageById(idNum)
+                end try
+            end if
+            if located is missing value and messageIdHeader is not "" then
+                set located to my findMessageByMessageId(messageIdHeader)
+            end if
+            if located is missing value then
+                error "Message not found" number -1700
+            end if
+            set targetMsg to item 1 of located
+            tell application "Mail"
+                delete targetMsg
+            end tell
+            return "deleted"
+        end deleteMessage
 
         on listMailboxes()
             set acctList to {}
