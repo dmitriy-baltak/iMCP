@@ -144,6 +144,13 @@ enum ServiceRegistry {
                 service: ShortcutsService.shared,
                 binding: shortcutsEnabled
             ),
+            ServiceConfig(
+                name: "Utilities",
+                iconName: "wrench.and.screwdriver.fill",
+                color: .gray,
+                service: UtilitiesService.shared,
+                binding: utilitiesEnabled
+            ),
         ]
         #if WEATHERKIT_AVAILABLE
             configs.append(
@@ -203,14 +210,6 @@ final class ServerController: ObservableObject {
             shortcutsEnabled: $shortcutsEnabled,
             utilitiesEnabled: $utilitiesEnabled,
             weatherEnabled: $weatherEnabled
-        )
-    }
-
-    private var currentServiceBindings: [String: Binding<Bool>] {
-        Dictionary(
-            uniqueKeysWithValues: computedServiceConfigs.map {
-                ($0.id, $0.binding)
-            }
         )
     }
 
@@ -274,8 +273,6 @@ final class ServerController: ObservableObject {
 
     init() {
         Task {
-            // Initialize bindings from AppStorage before the server starts.
-            await networkManager.updateServiceBindings(self.currentServiceBindings)
             await self.networkManager.start()
             self.updateServerStatus("Running")
 
@@ -312,8 +309,10 @@ final class ServerController: ObservableObject {
     }
 
     func updateServiceBindings(_ bindings: [String: Binding<Bool>]) async {
-        // Called by the UI when service toggles change.
-        await networkManager.updateServiceBindings(bindings)
+        // Called by the UI when service toggles change. Bindings are written
+        // through @AppStorage to UserDefaults; the network manager reads
+        // UserDefaults directly, so we just notify connected clients.
+        await networkManager.notifyServiceBindingsChanged()
     }
 
     func startServer() async {
@@ -440,9 +439,16 @@ actor MCPConnectionManager {
         self.connection = connection
         self.parentManager = parentManager
 
+        // Disable reconnection: server-side NWConnections that are cancelled
+        // cannot be restarted (calling `start(queue:)` twice on the same
+        // NWConnection triggers `nw_connection_set_queue called after
+        // nw_connection_start` and a CheckedContinuation double-resume — see
+        // mattt/iMCP#158). The NWListener will vend a fresh NWConnection for
+        // any new client, so retrying here is unnecessary.
         self.transport = NetworkTransport(
             connection: connection,
             logger: nil,
+            reconnectionConfig: .disabled,
             bufferConfig: .unlimited
         )
 
@@ -494,27 +500,39 @@ actor MCPConnectionManager {
     }
 
     private func startHealthMonitoring() async {
-        // Monitor until the manager stops or the connection fails.
+        // React immediately to state transitions instead of polling every 30s.
+        // NetworkTransport clears its own stateUpdateHandler after the initial
+        // .ready transition, so installing ours here is safe. Also poll at 1s
+        // as a fallback because peer-initiated TCP close may not trigger a
+        // state transition on our side unless we call connection.cancel().
+        let connectionID = self.connectionID
+        let parentManager = self.parentManager
+        let connection = self.connection
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .cancelled:
+                log.info("Connection \(connectionID) was cancelled, removing")
+                Task { await parentManager.removeConnection(connectionID) }
+            case .failed(let error):
+                log.error("Connection \(connectionID) failed with error \(error), removing")
+                Task { await parentManager.removeConnection(connectionID) }
+            default:
+                break
+            }
+        }
+
         Task {
             outer: while await parentManager.isRunning() {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)  // 1 second
                 switch connection.state {
                 case .ready, .setup, .preparing, .waiting:
                     break
-                case .cancelled:
-                    log.error("Connection \(self.connectionID) was cancelled, removing")
-                    await parentManager.removeConnection(connectionID)
-                    break outer
-                case .failed(let error):
-                    log.error(
-                        "Connection \(self.connectionID) failed with error \(error), removing"
-                    )
+                case .cancelled, .failed:
                     await parentManager.removeConnection(connectionID)
                     break outer
                 @unknown default:
-                    log.debug("Connection \(self.connectionID) in unknown state, skipping")
+                    break
                 }
-
-                try? await Task.sleep(nanoseconds: 30_000_000_000)  // 30 seconds
             }
         }
     }
@@ -643,7 +661,31 @@ actor ServerNetworkManager {
     private var connectionApprovalHandler: ConnectionApprovalHandler?
 
     private let services = ServiceRegistry.services
-    private var serviceBindings: [String: Binding<Bool>] = [:]
+
+    // Service-enablement is persisted in UserDefaults by the UI's @AppStorage.
+    // We read it directly here because @AppStorage-backed Bindings only stay
+    // live inside a SwiftUI view hierarchy — reading wrappedValue from this
+    // actor returned stale code-declared defaults.
+    private static let serviceDefaults: [(serviceId: String, key: String, defaultEnabled: Bool)] = [
+        ("CalendarService", "calendarEnabled", false),
+        ("CaptureService", "captureEnabled", false),
+        ("ContactsService", "contactsEnabled", false),
+        ("LocationService", "locationEnabled", false),
+        ("MailService", "mailEnabled", false),
+        ("MapsService", "mapsEnabled", true),
+        ("MessageService", "messagesEnabled", false),
+        ("RemindersService", "remindersEnabled", false),
+        ("ShortcutsService", "shortcutsEnabled", false),
+        ("UtilitiesService", "utilitiesEnabled", true),
+        ("WeatherService", "weatherEnabled", false),
+    ]
+
+    private func isServiceEnabled(_ serviceId: String) -> Bool {
+        guard let entry = Self.serviceDefaults.first(where: { $0.serviceId == serviceId }) else {
+            return false
+        }
+        return UserDefaults.standard.object(forKey: entry.key) as? Bool ?? entry.defaultEnabled
+    }
 
     init() {
         do {
@@ -873,18 +915,26 @@ actor ServerNetworkManager {
             if await self.isEnabledState {
                 for service in await self.services {
                     let serviceId = String(describing: type(of: service))
-
-                    // Read binding on the actor for consistency.
-                    if let isServiceEnabled = await self.serviceBindings[serviceId]?.wrappedValue,
-                        isServiceEnabled
-                    {
+                    if await self.isServiceEnabled(serviceId) {
+                        let schemaEncoder = JSONEncoder()
+                        let schemaDecoder = JSONDecoder()
                         for tool in service.tools {
                             log.debug("Adding tool: \(tool.name)")
+                            let schemaValue: Value
+                            do {
+                                let data = try schemaEncoder.encode(tool.inputSchema)
+                                schemaValue = try schemaDecoder.decode(Value.self, from: data)
+                            } catch {
+                                log.error(
+                                    "Failed to encode inputSchema for \(tool.name): \(error.localizedDescription)"
+                                )
+                                continue
+                            }
                             tools.append(
                                 .init(
                                     name: tool.name,
                                     description: tool.description,
-                                    inputSchema: tool.inputSchema,
+                                    inputSchema: schemaValue,
                                     annotations: tool.annotations
                                 )
                             )
@@ -900,7 +950,7 @@ actor ServerNetworkManager {
         await server.withMethodHandler(CallTool.self) { [weak self] params in
             guard let self = self else {
                 return CallTool.Result(
-                    content: [.text("Server unavailable")],
+                    content: [.text(text: "Server unavailable", annotations: nil, _meta: nil)],
                     isError: true
                 )
             }
@@ -910,7 +960,7 @@ actor ServerNetworkManager {
             guard await self.isEnabledState else {
                 log.notice("Tool call rejected: iMCP is disabled")
                 return CallTool.Result(
-                    content: [.text("iMCP is currently disabled. Please enable it to use tools.")],
+                    content: [.text(text: "iMCP is currently disabled. Please enable it to use tools.", annotations: nil, _meta: nil)],
                     isError: true
                 )
             }
@@ -918,10 +968,7 @@ actor ServerNetworkManager {
             for service in await self.services {
                 let serviceId = String(describing: type(of: service))
 
-                // Read binding on the actor for consistency.
-                if let isServiceEnabled = await self.serviceBindings[serviceId]?.wrappedValue,
-                    isServiceEnabled
-                {
+                if await self.isServiceEnabled(serviceId) {
                     do {
                         guard
                             let value = try await service.call(
@@ -939,7 +986,9 @@ actor ServerNetworkManager {
                                 content: [
                                     .audio(
                                         data: data.base64EncodedString(),
-                                        mimeType: mimeType
+                                        mimeType: mimeType,
+                                        annotations: nil,
+                                        _meta: nil
                                     )
                                 ],
                                 isError: false
@@ -950,7 +999,8 @@ actor ServerNetworkManager {
                                     .image(
                                         data: data.base64EncodedString(),
                                         mimeType: mimeType,
-                                        metadata: nil
+                                        annotations: nil,
+                                        _meta: nil
                                     )
                                 ],
                                 isError: false
@@ -964,20 +1014,20 @@ actor ServerNetworkManager {
                             let data = try encoder.encode(value)
                             let text = String(data: data, encoding: .utf8)!
 
-                            return CallTool.Result(content: [.text(text)], isError: false)
+                            return CallTool.Result(content: [.text(text: text, annotations: nil, _meta: nil)], isError: false)
                         }
                     } catch {
                         log.error(
                             "Error executing tool \(params.name): \(error.localizedDescription)"
                         )
-                        return CallTool.Result(content: [.text("Error: \(error)")], isError: true)
+                        return CallTool.Result(content: [.text(text: "Error: \(error)", annotations: nil, _meta: nil)], isError: true)
                     }
                 }
             }
 
             log.error("Tool not found or service not enabled: \(params.name)")
             return CallTool.Result(
-                content: [.text("Tool not found or service not enabled: \(params.name)")],
+                content: [.text(text: "Tool not found or service not enabled: \(params.name)", annotations: nil, _meta: nil)],
                 isError: true
             )
         }
@@ -999,15 +1049,11 @@ actor ServerNetworkManager {
         }
     }
 
-    // Update service bindings.
-    func updateServiceBindings(_ newBindings: [String: Binding<Bool>]) async {
-        self.serviceBindings = newBindings
-
-        // Notify clients that tool availability may have changed.
-        Task {
-            for (_, connectionManager) in connections {
-                await connectionManager.notifyToolListChanged()
-            }
+    // Called by the UI when service toggles change so connected MCP clients
+    // get a tools/list_changed notification and re-fetch the tool list.
+    func notifyServiceBindingsChanged() async {
+        for (_, connectionManager) in connections {
+            await connectionManager.notifyToolListChanged()
         }
     }
 }

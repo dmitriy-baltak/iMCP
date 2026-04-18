@@ -19,11 +19,13 @@ extension NSAppleEventDescriptor {
     }
 }
 
-final class MailService: NSObject, Service {
+final class MailService: NSObject, @unchecked Sendable, Service {
     static let shared = MailService()
 
     private let scriptQueue = DispatchQueue(label: "me.mattt.iMCP.mail-script")
     private var cachedScript: NSAppleScript?
+
+    private struct UncheckedBox<T>: @unchecked Sendable { let value: T }
 
     var isActivated: Bool {
         get async {
@@ -909,12 +911,13 @@ final class MailService: NSObject, Service {
         _ handlerName: String,
         arguments: [NSAppleEventDescriptor]
     ) async throws -> NSAppleEventDescriptor {
-        try await withCheckedThrowingContinuation { continuation in
+        let argsBox = UncheckedBox(value: arguments)
+        return try await withCheckedThrowingContinuation { continuation in
             scriptQueue.async {
                 do {
                     let script = try self.loadScript()
                     let params = NSAppleEventDescriptor.list()
-                    for (offset, descriptor) in arguments.enumerated() {
+                    for (offset, descriptor) in argsBox.value.enumerated() {
                         params.insert(descriptor, at: offset + 1)
                     }
 

@@ -4,6 +4,8 @@
 <dict>
 	<key>LSMultipleInstancesProhibited</key>
 	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>iMCP uses AppleScript to let MCP clients control Mail, Messages, Reminders, Shortcuts, and other supported apps on your behalf.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_mcp._tcp</string>
