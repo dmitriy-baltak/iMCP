@@ -449,6 +449,164 @@ final class MailService: NSObject, @unchecked Sendable, Service {
         }
 
         Tool(
+            name: "mail_unsubscribe",
+            description: """
+                Unsubscribe from a message using its RFC 2369 \
+                `List-Unsubscribe` header. When the sender advertises RFC \
+                8058 one-click (`List-Unsubscribe-Post: \
+                List-Unsubscribe=One-Click`), this POSTs to the HTTPS URL \
+                so the user is unsubscribed without leaving iMCP. \
+                Otherwise the `mailto:` variant is dispatched through \
+                Mail.app. If the message only exposes a non-one-click \
+                HTTPS URL, the URL is returned for the user to visit \
+                manually (it usually opens a confirmation page). Identify \
+                the message by envelope rowid (`id` from mail_search) or \
+                Message-ID header. Set `dry_run` to inspect the \
+                advertised endpoints without executing.
+                """,
+            inputSchema: .object(
+                properties: [
+                    "id": .string(
+                        description:
+                            "Envelope-index rowid (as returned by mail_search)"
+                    ),
+                    "message_id": .string(
+                        description:
+                            "RFC 5322 Message-ID header value (angle brackets optional)"
+                    ),
+                    "dry_run": .boolean(
+                        description:
+                            "Return the parsed unsubscribe endpoints without executing",
+                        default: .bool(false)
+                    ),
+                ],
+                additionalProperties: false
+            ),
+            annotations: .init(
+                title: "Unsubscribe from Sender",
+                destructiveHint: true,
+                openWorldHint: true
+            )
+        ) { arguments in
+            try await self.activate()
+
+            let localId = arguments["id"]?.stringValue ?? ""
+            var messageIdHeader = arguments["message_id"]?.stringValue ?? ""
+            let dryRun = arguments["dry_run"]?.boolValue ?? false
+
+            guard !localId.isEmpty || !messageIdHeader.isEmpty else {
+                throw MailError.invalidArgument(
+                    "Provide either `id` or `message_id` to identify the message."
+                )
+            }
+
+            if messageIdHeader.isEmpty, let rowId = Int64(localId) {
+                try? await MailEnvelopeDatabase.shared.activate()
+                if let envRow = try? MailEnvelopeDatabase.shared.findMessage(byRowId: rowId),
+                    !envRow.messageIdHeader.isEmpty
+                {
+                    messageIdHeader = envRow.messageIdHeader
+                }
+            }
+
+            let normalizedMessageId = messageIdHeader
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
+
+            let headersDescriptor = try await self.runHandler(
+                "readMessageHeaders",
+                arguments: [
+                    NSAppleEventDescriptor(string: localId),
+                    NSAppleEventDescriptor(string: normalizedMessageId),
+                ]
+            )
+            let rawHeaders = headersDescriptor.stringValue ?? ""
+            let parsed = Self.parseUnsubscribeHeaders(rawHeaders)
+            guard let listUnsubscribe = parsed.listUnsubscribe,
+                !listUnsubscribe.isEmpty
+            else {
+                throw MailError.invalidArgument(
+                    "Message has no `List-Unsubscribe` header."
+                )
+            }
+
+            let uris = Self.extractAngleBracketURIs(listUnsubscribe)
+            let httpsURLs = uris.compactMap { URL(string: $0) }.filter {
+                ($0.scheme?.lowercased() == "https")
+            }
+            let mailtoURIs = uris.filter { $0.lowercased().hasPrefix("mailto:") }
+            let isOneClick = (parsed.post ?? "").lowercased()
+                .replacingOccurrences(of: " ", with: "")
+                .contains("list-unsubscribe=one-click")
+
+            if dryRun {
+                return Value.object([
+                    "dryRun": .bool(true),
+                    "listUnsubscribe": .string(listUnsubscribe),
+                    "listUnsubscribePost": .string(parsed.post ?? ""),
+                    "httpsURLs": .array(httpsURLs.map { .string($0.absoluteString) }),
+                    "mailtoURIs": .array(mailtoURIs.map { .string($0) }),
+                    "oneClickEligible": .bool(isOneClick && !httpsURLs.isEmpty),
+                ])
+            }
+
+            if isOneClick, let url = httpsURLs.first {
+                let httpStatus = try await Self.performOneClickUnsubscribe(url: url)
+                let ok = (200..<300).contains(httpStatus)
+                return Value.object([
+                    "status": .string(ok ? "unsubscribed" : "http_error"),
+                    "method": .string("https-one-click"),
+                    "url": .string(url.absoluteString),
+                    "httpStatus": .int(httpStatus),
+                ])
+            }
+
+            if let mailto = mailtoURIs.first,
+                let parsedMailto = Self.parseMailtoURI(mailto)
+            {
+                let subject =
+                    parsedMailto.subject.isEmpty ? "unsubscribe" : parsedMailto.subject
+                let body =
+                    parsedMailto.body.isEmpty ? "unsubscribe" : parsedMailto.body
+                let toList = NSAppleEventDescriptor.list()
+                toList.insert(NSAppleEventDescriptor(string: parsedMailto.to), at: 1)
+                _ = try await self.runHandler(
+                    "sendMessage",
+                    arguments: [
+                        NSAppleEventDescriptor(string: subject),
+                        NSAppleEventDescriptor(string: body),
+                        toList,
+                        NSAppleEventDescriptor.list(),
+                        NSAppleEventDescriptor.list(),
+                        NSAppleEventDescriptor(boolean: false),
+                        NSAppleEventDescriptor.list(),
+                    ]
+                )
+                return Value.object([
+                    "status": .string("unsubscribe_requested"),
+                    "method": .string("mailto"),
+                    "to": .string(parsedMailto.to),
+                    "subject": .string(subject),
+                ])
+            }
+
+            if let url = httpsURLs.first {
+                return Value.object([
+                    "status": .string("manual_confirmation_required"),
+                    "method": .string("manual-url"),
+                    "url": .string(url.absoluteString),
+                    "note": .string(
+                        "Sender did not advertise RFC 8058 one-click. Open the URL to complete unsubscribe."
+                    ),
+                ])
+            }
+
+            throw MailError.invalidArgument(
+                "List-Unsubscribe header present but contained no usable https:// or mailto: URI."
+            )
+        }
+
+        Tool(
             name: "mail_list_mailboxes",
             description: "List Mail accounts and their mailboxes",
             inputSchema: .object(properties: [:], additionalProperties: false),
@@ -502,6 +660,97 @@ final class MailService: NSObject, @unchecked Sendable, Service {
             }
         }
         return mapping
+    }
+
+    // MARK: - List-Unsubscribe parsing
+
+    fileprivate static func parseUnsubscribeHeaders(
+        _ rawHeaders: String
+    ) -> (listUnsubscribe: String?, post: String?) {
+        let normalized = rawHeaders.replacingOccurrences(of: "\r\n", with: "\n")
+        var unfolded: [String] = []
+        for line in normalized.components(separatedBy: "\n") {
+            if let first = line.first, (first == " " || first == "\t"),
+                !unfolded.isEmpty
+            {
+                unfolded[unfolded.count - 1] +=
+                    " " + line.trimmingCharacters(in: .whitespaces)
+            } else {
+                unfolded.append(line)
+            }
+        }
+        var listUnsubscribe: String?
+        var post: String?
+        for line in unfolded {
+            guard let colon = line.firstIndex(of: ":") else { continue }
+            let name = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
+            let value = String(line[line.index(after: colon)...])
+                .trimmingCharacters(in: .whitespaces)
+            switch name {
+            case "list-unsubscribe": listUnsubscribe = value
+            case "list-unsubscribe-post": post = value
+            default: break
+            }
+        }
+        return (listUnsubscribe, post)
+    }
+
+    fileprivate static func extractAngleBracketURIs(_ value: String) -> [String] {
+        var result: [String] = []
+        var current = ""
+        var inside = false
+        for ch in value {
+            if ch == "<" {
+                inside = true
+                current = ""
+            } else if ch == ">" {
+                inside = false
+                let trimmed = current.trimmingCharacters(in: .whitespaces)
+                if !trimmed.isEmpty { result.append(trimmed) }
+            } else if inside {
+                current.append(ch)
+            }
+        }
+        return result
+    }
+
+    fileprivate static func parseMailtoURI(
+        _ uri: String
+    ) -> (to: String, subject: String, body: String)? {
+        guard let comps = URLComponents(string: uri),
+            comps.scheme?.lowercased() == "mailto"
+        else { return nil }
+        let toAddr = comps.path.trimmingCharacters(in: .whitespaces)
+        guard !toAddr.isEmpty else { return nil }
+        var subject = ""
+        var body = ""
+        for item in comps.queryItems ?? [] {
+            switch item.name.lowercased() {
+            case "subject": subject = item.value ?? ""
+            case "body": body = item.value ?? ""
+            default: break
+            }
+        }
+        return (toAddr, subject, body)
+    }
+
+    fileprivate static func performOneClickUnsubscribe(url: URL) async throws -> Int {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(
+            "application/x-www-form-urlencoded",
+            forHTTPHeaderField: "Content-Type"
+        )
+        request.httpBody = Data("List-Unsubscribe=One-Click".utf8)
+        request.timeoutInterval = 15
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw MailError.scriptExecutionFailed(
+                code: 0,
+                message: "Unsubscribe POST returned no HTTP response"
+            )
+        }
+        return http.statusCode
     }
 
     // MARK: - Descriptor decoding
@@ -862,6 +1111,30 @@ final class MailService: NSObject, @unchecked Sendable, Service {
             end tell
             return "deleted"
         end deleteMessage
+
+        on readMessageHeaders(messageLocalId, messageIdHeader)
+            set located to missing value
+            if messageLocalId is not "" then
+                try
+                    set idNum to messageLocalId as integer
+                    set located to my findMessageById(idNum)
+                end try
+            end if
+            if located is missing value and messageIdHeader is not "" then
+                set located to my findMessageByMessageId(messageIdHeader)
+            end if
+            if located is missing value then
+                error "Message not found" number -1700
+            end if
+            set targetMsg to item 1 of located
+            set allHeadersText to ""
+            tell application "Mail"
+                try
+                    set allHeadersText to all headers of targetMsg as text
+                end try
+            end tell
+            return allHeadersText
+        end readMessageHeaders
 
         on listMailboxes()
             set acctList to {}
