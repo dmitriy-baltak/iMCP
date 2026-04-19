@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 
 private let log = Logger.service("mail.envelope")
 
-private let envelopeBookmarkKey = "me.mattt.iMCP.mailEnvelopeBookmark"
+private let envelopeBookmarkKey = "com.baltak.imcp.mailEnvelopeBookmark"
 private let defaultMailRoot = "\(NSHomeDirectory())/Library/Mail"
 
 // SQLite destructor tags — used when binding text values that the binding site
@@ -79,7 +79,7 @@ final class MailEnvelopeDatabase: NSObject, @unchecked Sendable, NSOpenSavePanel
     static let shared = MailEnvelopeDatabase()
 
     // Guards access to `db` handle.
-    private let queue = DispatchQueue(label: "me.mattt.iMCP.mail-envelope")
+    private let queue = DispatchQueue(label: "com.baltak.imcp.mail-envelope")
     private var db: OpaquePointer?
     private var openedPath: String?
     // Security-scoped URL kept live for as long as `db` is open, so SQLite can

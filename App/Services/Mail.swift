@@ -24,7 +24,7 @@ extension NSAppleEventDescriptor {
 final class MailService: NSObject, @unchecked Sendable, Service {
     static let shared = MailService()
 
-    private let scriptQueue = DispatchQueue(label: "me.mattt.iMCP.mail-script")
+    private let scriptQueue = DispatchQueue(label: "com.baltak.imcp.mail-script")
     private var cachedScript: NSAppleScript?
 
     private let accountMappingLock = NSLock()

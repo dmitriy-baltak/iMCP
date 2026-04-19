@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 
 private let log = Logger.service("files")
 
-private let filesBookmarkKey = "me.mattt.iMCP.filesFolderBookmark"
+private let filesBookmarkKey = "com.baltak.imcp.filesFolderBookmark"
 
 private let maxFileSize = 100_000_000
 private let maxDirectoryEntries = 1024
@@ -350,7 +350,7 @@ private func directoryJSON(for url: URL) throws -> String {
 
 private final class FolderWatcher {
     private let path: String
-    private let queue = DispatchQueue(label: "me.mattt.iMCP.files.watch")
+    private let queue = DispatchQueue(label: "com.baltak.imcp.files.watch")
     private var stream: FSEventStreamRef?
     var onChange: (() -> Void)?
 
