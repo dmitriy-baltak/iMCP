@@ -49,7 +49,7 @@ final class FilesService: NSObject, Service, @unchecked Sendable {
     var resourceTemplates: [ResourceTemplate] {
         ResourceTemplate(
             name: "file",
-            description: "Read file or directory contents under the folder you granted iMCP access to",
+            description: "Read file or directory contents under the folder you granted iMCP MY access to",
             uriTemplate: "file://{path}",
             mimeType: "application/json"
         ) { [weak self] uri in
@@ -242,9 +242,9 @@ final class FilesService: NSObject, Service, @unchecked Sendable {
     @MainActor
     private func showAccessAlert() -> Bool {
         let alert = NSAlert()
-        alert.messageText = "Pick a folder to share with iMCP"
+        alert.messageText = "Pick a folder to share with iMCP MY"
         alert.informativeText = """
-            iMCP's Files service exposes files only under a single folder \
+            iMCP MY's Files service exposes files only under a single folder \
             you pick here (and its descendants). It never reads anywhere \
             else. You can change the folder later from the menu bar \
             toggle by resetting it.
@@ -430,7 +430,7 @@ enum FilesError: LocalizedError {
         case .invalidURI(let uri):
             return "Not a file:// URI: \(uri)"
         case .outOfScope(let path):
-            return "Path is outside the folder the user granted iMCP access to: \(path)"
+            return "Path is outside the folder the user granted iMCP MY access to: \(path)"
         case .notFound(let path):
             return "File or directory does not exist: \(path)"
         case .fileTooLarge(let size):

@@ -46,9 +46,9 @@ enum ClaudeDesktop {
             let fileExists = FileManager.default.fileExists(atPath: configPath)
 
             let alert = NSAlert()
-            alert.messageText = "Set Up iMCP Server"
+            alert.messageText = "Set Up iMCP MY Server"
             alert.informativeText = """
-                This will \(fileExists ? "update" : "create") the iMCP server settings in Claude Desktop.
+                This will \(fileExists ? "update" : "create") the iMCP MY server settings in Claude Desktop.
 
                 Location: \(configPath)
 
@@ -115,7 +115,7 @@ private func saveSecurityScopedAccess(for url: URL) throws {
 }
 
 private func loadConfig() throws -> ([String: Value], ClaudeDesktop.Config.MCPServer) {
-    log.debug("Creating default iMCP server configuration")
+    log.debug("Creating default iMCP MY server configuration")
     let imcpServer = ClaudeDesktop.Config.MCPServer(
         command: Bundle.main.bundleURL
             .appendingPathComponent("Contents/MacOS/imcp-server")
@@ -198,15 +198,15 @@ private func updateConfig(
 )
     throws
 {
-    // Update the iMCP server entry
+    // Update the iMCP MY server entry
     var updatedConfig = config
     let imcpServerValue = try Value(imcpServer)
 
     if var mcpServers = config["mcpServers"]?.objectValue {
-        mcpServers["iMCP"] = imcpServerValue
+        mcpServers["iMCP MY"] = imcpServerValue
         updatedConfig["mcpServers"] = .object(mcpServers)
     } else {
-        updatedConfig["mcpServers"] = .object(["iMCP": imcpServerValue])
+        updatedConfig["mcpServers"] = .object(["iMCP MY": imcpServerValue])
     }
 
     // First try with the security-scoped URL if available
@@ -246,7 +246,7 @@ private func updateConfig(
     // Finally, show save panel as a last resort
     log.debug("Showing save panel for new configuration location")
     let savePanel = NSSavePanel()
-    savePanel.message = "Choose where to save the iMCP server settings."
+    savePanel.message = "Choose where to save the iMCP MY server settings."
     savePanel.prompt = "Set Up"
     savePanel.allowedContentTypes = [.json]
     savePanel.directoryURL = URL(fileURLWithPath: configPath).deletingLastPathComponent()

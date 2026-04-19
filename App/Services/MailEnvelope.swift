@@ -57,7 +57,7 @@ enum MailEnvelopeError: LocalizedError {
         switch self {
         case .accessDenied:
             return """
-                Mail data is not accessible. Grant iMCP Full Disk Access in \
+                Mail data is not accessible. Grant iMCP MY Full Disk Access in \
                 System Settings → Privacy & Security → Full Disk Access, or \
                 re-run and select the Envelope Index file when prompted.
                 """
@@ -639,7 +639,7 @@ final class MailEnvelopeDatabase: NSObject, @unchecked Sendable, NSOpenSavePanel
         let alert = NSAlert()
         alert.messageText = "Mail Data Access Required"
         alert.informativeText = """
-            To search Mail fast, iMCP needs to read Mail's envelope index.
+            To search Mail fast, iMCP MY needs to read Mail's envelope index.
 
             In the next screen, select the `MailData` folder \
             (inside ~/Library/Mail/V10/) and click "Grant Access". \

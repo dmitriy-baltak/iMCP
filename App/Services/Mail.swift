@@ -455,7 +455,7 @@ final class MailService: NSObject, @unchecked Sendable, Service {
                 `List-Unsubscribe` header. When the sender advertises RFC \
                 8058 one-click (`List-Unsubscribe-Post: \
                 List-Unsubscribe=One-Click`), this POSTs to the HTTPS URL \
-                so the user is unsubscribed without leaving iMCP. \
+                so the user is unsubscribed without leaving iMCP MY. \
                 Otherwise the `mailto:` variant is dispatched through \
                 Mail.app. If the message only exposes a non-one-click \
                 HTTPS URL, the URL is returned for the user to visit \
@@ -864,7 +864,7 @@ final class MailService: NSObject, @unchecked Sendable, Service {
             case .notAuthorized:
                 return """
                     Mail automation is not authorized. Open System Settings → \
-                    Privacy & Security → Automation and allow iMCP to control Mail.
+                    Privacy & Security → Automation and allow iMCP MY to control Mail.
                     """
             case .mailNotAvailable:
                 return "Mail.app is not installed or could not be launched."
