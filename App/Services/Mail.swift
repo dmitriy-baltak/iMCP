@@ -254,7 +254,7 @@ final class MailService: NSObject, @unchecked Sendable, Service {
             let attachmentDir: String
             if includeAttachments {
                 let dir = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("iMCP-Mail-\(UUID().uuidString)", isDirectory: true)
+                    .appendingPathComponent("iMCP-MY-Mail-\(UUID().uuidString)", isDirectory: true)
                 try FileManager.default.createDirectory(
                     at: dir,
                     withIntermediateDirectories: true,
