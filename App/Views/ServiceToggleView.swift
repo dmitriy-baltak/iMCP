@@ -3,7 +3,6 @@ import AppKit
 
 struct ServiceToggleView: View {
     let config: ServiceConfig
-    @State private var isServiceActivated = false
 
     // MARK: Environment
     @Environment(\.colorScheme) private var colorScheme
@@ -17,7 +16,7 @@ struct ServiceToggleView: View {
         HStack {
             Button(action: {
                 config.binding.wrappedValue.toggle()
-                if config.binding.wrappedValue && !isServiceActivated {
+                if config.binding.wrappedValue {
                     Task {
                         do {
                             try await config.service.activate()
@@ -48,9 +47,6 @@ struct ServiceToggleView: View {
         }
         .frame(height: buttonSize)
         .padding(.horizontal, 14)
-        .task {
-            isServiceActivated = await config.isActivated
-        }
     }
 
     private var buttonBackgroundColor: Color {

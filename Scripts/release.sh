@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="${APP_NAME:-iMCP}"
+APP_NAME="${APP_NAME:-iMCP-MY}"
 APP_BUNDLE="${APP_BUNDLE:-${APP_NAME}.app}"
 KEYCHAIN_PROFILE="${KEYCHAIN_PROFILE:-}"
 VERSION="${VERSION:-}"
 BUILD_NUMBER="${BUILD_NUMBER:-}"
-SCHEME="${SCHEME:-iMCP}"
+SCHEME="${SCHEME:-iMCP-MY}"
 CONFIGURATION="${CONFIGURATION:-Release}"
 DESTINATION="${DESTINATION:-platform=macOS}"
 PROJECT_FILE="${PROJECT_FILE:-${APP_NAME}.xcodeproj/project.pbxproj}"
@@ -43,12 +43,12 @@ Commands:
   help        Show this help
 
 Environment:
-  APP_NAME          App name (default: iMCP)
+  APP_NAME          App name (default: iMCP-MY)
   APP_BUNDLE        App bundle path (default: ${APP_NAME}.app)
   KEYCHAIN_PROFILE  Required for notarize
   VERSION           Required for bumping, commit, release, and upload
   BUILD_NUMBER      Optional; used when bumping build number
-  SCHEME            Xcode scheme for build check (default: iMCP)
+  SCHEME            Xcode scheme for build check (default: iMCP-MY)
   CONFIGURATION     Build configuration for build check (default: Release)
   DESTINATION       Build destination for build check (default: platform=macOS)
   PROJECT_FILE      Xcode project file (default: ${APP_NAME}.xcodeproj/project.pbxproj)
@@ -126,7 +126,7 @@ resolve_bundle_id() {
     return 1
   fi
   while IFS= read -r line; do
-    if [[ "${line}" == *"PRODUCT_BUNDLE_IDENTIFIER ="* && "${line}" != *"imcp-server"* ]]; then
+    if [[ "${line}" == *"PRODUCT_BUNDLE_IDENTIFIER ="* && "${line}" != *"imcp-my-server"* ]]; then
       BUNDLE_ID="${line#*PRODUCT_BUNDLE_IDENTIFIER = }"
       BUNDLE_ID="${BUNDLE_ID%;}"
       return 0

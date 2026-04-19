@@ -4,15 +4,11 @@
 <dict>
 	<key>LSMultipleInstancesProhibited</key>
 	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>iMCP-MY uses AppleScript to let MCP clients control Mail, Messages, Reminders, Shortcuts, and other supported apps on your behalf.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_mcp._tcp</string>
 	</array>
-	<key>SUEnableInstallerLauncherService</key>
-	<true/>
-	<key>SUFeedURL</key>
-	<string>https://downloads.imcp.app/appcast.xml</string>
-	<key>SUPublicEDKey</key>
-	<string>+2ibtYfPSNKpUJsn1R9Ywc1GnjQA5vemVN95d0EzGxg=</string>
 </dict>
 </plist>
