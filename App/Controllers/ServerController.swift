@@ -196,11 +196,11 @@ final class ServerController: ObservableObject {
     @AppStorage("filesEnabled") private var filesEnabled = false
     @AppStorage("locationEnabled") private var locationEnabled = false
     @AppStorage("mailEnabled") private var mailEnabled = false
-    @AppStorage("mapsEnabled") private var mapsEnabled = true  // Default enabled
+    @AppStorage("mapsEnabled") private var mapsEnabled = false
     @AppStorage("messagesEnabled") private var messagesEnabled = false
     @AppStorage("remindersEnabled") private var remindersEnabled = false
     @AppStorage("shortcutsEnabled") private var shortcutsEnabled = false
-    @AppStorage("utilitiesEnabled") private var utilitiesEnabled = true  // Default enabled
+    @AppStorage("utilitiesEnabled") private var utilitiesEnabled = false
     @AppStorage("weatherEnabled") private var weatherEnabled = false
 
     // MARK: - AppStorage for Trusted Clients
