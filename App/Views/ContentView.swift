@@ -85,7 +85,7 @@ struct ContentView: View {
 
                 MenuButton("Copy server command to clipboard", isMenuPresented: $isMenuPresented) {
                     let command = Bundle.main.bundleURL
-                        .appendingPathComponent("Contents/MacOS/imcp-server")
+                        .appendingPathComponent("Contents/MacOS/imcp-my-server")
                         .path
 
                     let pasteboard = NSPasteboard.general

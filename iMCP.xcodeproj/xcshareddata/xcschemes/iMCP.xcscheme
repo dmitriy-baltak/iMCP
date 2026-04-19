@@ -30,7 +30,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "F8F44EB52D5908D00075D79C"
-               BuildableName = "imcp-server"
+               BuildableName = "imcp-my-server"
                BlueprintName = "imcp-server"
                ReferencedContainer = "container:iMCP.xcodeproj">
             </BuildableReference>

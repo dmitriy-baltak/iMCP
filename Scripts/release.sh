@@ -126,7 +126,7 @@ resolve_bundle_id() {
     return 1
   fi
   while IFS= read -r line; do
-    if [[ "${line}" == *"PRODUCT_BUNDLE_IDENTIFIER ="* && "${line}" != *"imcp-server"* ]]; then
+    if [[ "${line}" == *"PRODUCT_BUNDLE_IDENTIFIER ="* && "${line}" != *"imcp-my-server"* ]]; then
       BUNDLE_ID="${line#*PRODUCT_BUNDLE_IDENTIFIER = }"
       BUNDLE_ID="${BUNDLE_ID%;}"
       return 0

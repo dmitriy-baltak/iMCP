@@ -118,7 +118,7 @@ private func loadConfig() throws -> ([String: Value], ClaudeDesktop.Config.MCPSe
     log.debug("Creating default iMCP MY server configuration")
     let imcpServer = ClaudeDesktop.Config.MCPServer(
         command: Bundle.main.bundleURL
-            .appendingPathComponent("Contents/MacOS/imcp-server")
+            .appendingPathComponent("Contents/MacOS/imcp-my-server")
             .path
     )
 
