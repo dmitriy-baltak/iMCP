@@ -65,17 +65,23 @@ and a [growing list of clients][mcp-clients] that support the
 
 ## Getting Started
 
-### Download and open the app
+### Build and open the app
 
-First, [download the iMCP app](https://iMCP.app/download)
-(requires macOS 15.3 or later).
-
-Or, if you have [Homebrew](https://brew.sh) installed,
-you can run the following command:
+This is a personal fork. Build from source (requires macOS 15.3 or later
+and Xcode):
 
 ```console
-brew install --cask mattt/tap/iMCP
+xcodebuild -scheme iMCP-MY -configuration Release \
+  -destination 'platform=macOS' -derivedDataPath build \
+  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+  CODE_SIGN_IDENTITY='' CODE_SIGN_STYLE=Manual \
+  DEVELOPMENT_TEAM='' PROVISIONING_PROFILE_SPECIFIER='' build
+
+cp -R build/Build/Products/Release/iMCP-MY.app /Applications/
 ```
+
+The first launch requires a right-click → Open to clear Gatekeeper for the
+ad-hoc signature.
 
 <img align="right" width="344" src="/Assets/imcp-screenshot-first-launch.png" alt="Screenshot of iMCP on first launch" />
 
@@ -100,7 +106,7 @@ and ready to connect with MCP-compatible clients.
 
 To activate a service, click on its icon.
 The system will prompt you with a permission dialog.
-For example, when activating Calendar access, you'll see a dialog asking `"iMCP" Would Like Full Access to Your Calendar`.
+For example, when activating Calendar access, you'll see a dialog asking `"iMCP-MY" Would Like Full Access to Your Calendar`.
 Click <kbd>Allow Full Access</kbd> to continue.
 
 > [!IMPORTANT]
@@ -158,7 +164,7 @@ and enter the following:
 ```json
 {
   "mcpServers": {
-    "iMCP": {
+    "iMCP-MY": {
       "command": "{paste iMCP server command}"
     }
   }
@@ -203,7 +209,7 @@ without requiring you to manually share this data during your conversation.
 To add iMCP globally after installing the app:
 
 ```console
-claude mcp add --scope user iMCP -- /Applications/iMCP.app/Contents/MacOS/imcp-my-server
+claude mcp add --scope user iMCP-MY -- /Applications/iMCP-MY.app/Contents/MacOS/imcp-my-server
 ```
 
 <details>
@@ -234,7 +240,7 @@ Open this deep link to automatically install the iMCP server:
 To add iMCP globally (available in all projects):
 
 ```console
-amp mcp add iMCP -- /Applications/iMCP.app/Contents/MacOS/imcp-my-server
+amp mcp add iMCP-MY -- /Applications/iMCP-MY.app/Contents/MacOS/imcp-my-server
 ```
 
 > [!NOTE]
@@ -356,7 +362,7 @@ Here's how to connect it to iMCP:
 2. [Download][companion-download] and open the Companion app
 3. Click the <kbd>+</kbd> button in the toolbar to add an MCP server
 4. Fill out the form:
-   - Enter "iMCP" as the name
+   - Enter "iMCP-MY" as the name
    - Select "STDIO" as the transport
    - Paste the copied iMCP server command
    - Click "Add Server"

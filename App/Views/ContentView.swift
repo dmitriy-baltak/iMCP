@@ -104,7 +104,7 @@ struct ContentView: View {
                     openSettings()
                 }
 
-                MenuButton("About iMCP MY", isMenuPresented: $isMenuPresented) {
+                MenuButton("About iMCP-MY", isMenuPresented: $isMenuPresented) {
                     aboutWindowController.showWindow(nil)
                     NSApp.activate(ignoringOtherApps: true)
                 }

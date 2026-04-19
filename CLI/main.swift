@@ -7,7 +7,7 @@ import SystemPackage
 import struct Foundation.Data
 import class Foundation.RunLoop
 
-var log = Logger(label: "com.baltak.imcp.server") { StreamLogHandler.standardError(label: $0) }
+var log = Logger(label: "com.baltak.imcp-my-server") { StreamLogHandler.standardError(label: $0) }
 #if DEBUG
     log.logLevel = .debug
 #else

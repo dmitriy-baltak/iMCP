@@ -349,7 +349,7 @@ final class ServerController: ObservableObject {
     private func sendClientConnectionNotification(clientName: String) {
         let content = UNMutableNotificationContent()
         content.title = "Client Connected"
-        content.body = "Client '\(clientName)' has connected to iMCP MY"
+        content.body = "Client '\(clientName)' has connected to iMCP-MY"
         content.threadIdentifier = "client-connection-\(clientName)"
 
         let request = UNNotificationRequest(
@@ -465,7 +465,7 @@ actor MCPConnectionManager {
 
         // MCP server instance for this connection.
         self.server = MCP.Server(
-            name: Bundle.main.name ?? "iMCP MY",
+            name: Bundle.main.name ?? "iMCP-MY",
             version: Bundle.main.shortVersionString ?? "unknown",
             capabilities: MCP.Server.Capabilities(
                 resources: .init(subscribe: true, listChanged: true),
@@ -999,7 +999,7 @@ actor ServerNetworkManager {
             log.notice("ReadResource request for \(connectionID): \(params.uri)")
 
             guard await self.isEnabledState else {
-                throw MCPError.invalidRequest("iMCP MY is currently disabled")
+                throw MCPError.invalidRequest("iMCP-MY is currently disabled")
             }
 
             for service in await self.services {
@@ -1019,7 +1019,7 @@ actor ServerNetworkManager {
             log.notice("ResourceSubscribe request for \(connectionID): \(params.uri)")
 
             guard await self.isEnabledState else {
-                throw MCPError.invalidRequest("iMCP MY is currently disabled")
+                throw MCPError.invalidRequest("iMCP-MY is currently disabled")
             }
 
             let onChange: @Sendable (String) -> Void = { [weak self] changedURI in
@@ -1115,9 +1115,9 @@ actor ServerNetworkManager {
             log.notice("Tool call received from \(connectionID): \(params.name)")
 
             guard await self.isEnabledState else {
-                log.notice("Tool call rejected: iMCP MY is disabled")
+                log.notice("Tool call rejected: iMCP-MY is disabled")
                 return CallTool.Result(
-                    content: [.text(text: "iMCP MY is currently disabled. Please enable it to use tools.", annotations: nil, _meta: nil)],
+                    content: [.text(text: "iMCP-MY is currently disabled. Please enable it to use tools.", annotations: nil, _meta: nil)],
                     isError: true
                 )
             }
@@ -1196,7 +1196,7 @@ actor ServerNetworkManager {
         guard isEnabledState != enabled else { return }
 
         isEnabledState = enabled
-        log.info("iMCP MY enabled state changed to: \(enabled)")
+        log.info("iMCP-MY enabled state changed to: \(enabled)")
 
         // Notify all connected clients that the tool list has changed.
         for (_, connectionManager) in connections {

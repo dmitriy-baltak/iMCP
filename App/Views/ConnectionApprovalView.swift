@@ -24,7 +24,7 @@ struct ConnectionApprovalView: View {
 
             // Message
             VStack(alignment: .leading, spacing: 8) {
-                Text("Allow \"\(clientName)\" to connect to iMCP MY?")
+                Text("Allow \"\(clientName)\" to connect to iMCP-MY?")
 
                 Text("This will give the client access to enabled services.")
                     .font(.caption)

@@ -14,7 +14,7 @@
 		F873F48D2D712BCF0035CD0A /* Ontology in Frameworks */ = {isa = PBXBuildFile; productRef = F873F48C2D712BCF0035CD0A /* Ontology */; };
 		F87796FC2E0764AE00328CC6 /* MenuBarExtraAccess in Frameworks */ = {isa = PBXBuildFile; productRef = F87796FB2E0764AE00328CC6 /* MenuBarExtraAccess */; };
 		F88358372D64A085000317CD /* Logging in Frameworks */ = {isa = PBXBuildFile; productRef = F88358362D64A085000317CD /* Logging */; };
-		F885C6B82D66079100963B25 /* imcp-server in Copy Executables */ = {isa = PBXBuildFile; fileRef = F8F44EB62D5908D00075D79C /* imcp-server */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		F885C6B82D66079100963B25 /* imcp-my-server in Copy Executables */ = {isa = PBXBuildFile; fileRef = F8F44EB62D5908D00075D79C /* imcp-my-server */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		F8A7DE3E2DCB76F700530587 /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = F8A7DE3D2DCB76F700530587 /* MCP */; };
 		F8CE997B2D591CF200C61CA2 /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = F8CE997A2D591CF200C61CA2 /* MCP */; };
 		F8D7C3172DCBD30500A4775F /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = F8D7C3162DCBD30500A4775F /* MCP */; };
@@ -30,7 +30,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 6;
 			files = (
-				F885C6B82D66079100963B25 /* imcp-server in Copy Executables */,
+				F885C6B82D66079100963B25 /* imcp-my-server in Copy Executables */,
 			);
 			name = "Copy Executables";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -47,17 +47,17 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		F8F44E6D2D59038D0075D79C /* iMCP.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iMCP.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F8F44E6D2D59038D0075D79C /* iMCP-MY.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "iMCP-MY.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		F8F44EB62D5908D00075D79C /* imcp-my-server */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "imcp-my-server"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		F8F44EB12D5906E20075D79C /* Exceptions for "App" folder in "iMCP" target */ = {
+		F8F44EB12D5906E20075D79C /* Exceptions for "App" folder in "iMCP-MY" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = F8F44E6C2D59038D0075D79C /* iMCP */;
+			target = F8F44E6C2D59038D0075D79C /* iMCP-MY */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -65,7 +65,7 @@
 		F8F44E6F2D59038D0075D79C /* App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				F8F44EB12D5906E20075D79C /* Exceptions for "App" folder in "iMCP" target */,
+				F8F44EB12D5906E20075D79C /* Exceptions for "App" folder in "iMCP-MY" target */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -120,8 +120,8 @@
 		F8F44E6E2D59038D0075D79C /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				F8F44E6D2D59038D0075D79C /* iMCP.app */,
-				F8F44EB62D5908D00075D79C /* imcp-server */,
+				F8F44E6D2D59038D0075D79C /* iMCP-MY.app */,
+				F8F44EB62D5908D00075D79C /* imcp-my-server */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -129,9 +129,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		F8F44E6C2D59038D0075D79C /* iMCP */ = {
+		F8F44E6C2D59038D0075D79C /* iMCP-MY */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = F8F44E922D59038E0075D79C /* Build configuration list for PBXNativeTarget "iMCP" */;
+			buildConfigurationList = F8F44E922D59038E0075D79C /* Build configuration list for PBXNativeTarget "iMCP-MY" */;
 			buildPhases = (
 				F8F44E692D59038D0075D79C /* Sources */,
 				F8F44E6A2D59038D0075D79C /* Frameworks */,
@@ -145,7 +145,7 @@
 			fileSystemSynchronizedGroups = (
 				F8F44E6F2D59038D0075D79C /* App */,
 			);
-			name = iMCP;
+			name = "iMCP-MY";
 			packageProductDependencies = (
 				F8F44E9C2D5903F70075D79C /* MCP */,
 				F873F48C2D712BCF0035CD0A /* Ontology */,
@@ -157,13 +157,13 @@
 				F8D8C48D2DCE0E6800369E5C /* JSONSchema */,
 				F87796FB2E0764AE00328CC6 /* MenuBarExtraAccess */,
 			);
-			productName = iMCP;
-			productReference = F8F44E6D2D59038D0075D79C /* iMCP.app */;
+			productName = "iMCP-MY";
+			productReference = F8F44E6D2D59038D0075D79C /* iMCP-MY.app */;
 			productType = "com.apple.product-type.application";
 		};
-		F8F44EB52D5908D00075D79C /* imcp-server */ = {
+		F8F44EB52D5908D00075D79C /* imcp-my-server */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = F8F44EBA2D5908D00075D79C /* Build configuration list for PBXNativeTarget "imcp-server" */;
+			buildConfigurationList = F8F44EBA2D5908D00075D79C /* Build configuration list for PBXNativeTarget "imcp-my-server" */;
 			buildPhases = (
 				F8F44EB22D5908D00075D79C /* Sources */,
 				F8F44EB32D5908D00075D79C /* Frameworks */,
@@ -176,15 +176,15 @@
 			fileSystemSynchronizedGroups = (
 				F8F44EB72D5908D00075D79C /* CLI */,
 			);
-			name = "imcp-server";
+			name = "imcp-my-server";
 			packageProductDependencies = (
 				F8CE997A2D591CF200C61CA2 /* MCP */,
 				F88358362D64A085000317CD /* Logging */,
 				F825BDBE2D9AD00E0063ADD7 /* ServiceLifecycle */,
 				F825BDC02D9AD00E0063ADD7 /* UnixSignals */,
 			);
-			productName = "imcp-server";
-			productReference = F8F44EB62D5908D00075D79C /* imcp-server */;
+			productName = "imcp-my-server";
+			productReference = F8F44EB62D5908D00075D79C /* imcp-my-server */;
 			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
@@ -205,7 +205,7 @@
 					};
 				};
 			};
-			buildConfigurationList = F8F44E682D59038D0075D79C /* Build configuration list for PBXProject "iMCP" */;
+			buildConfigurationList = F8F44E682D59038D0075D79C /* Build configuration list for PBXProject "iMCP-MY" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -228,8 +228,8 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				F8F44E6C2D59038D0075D79C /* iMCP */,
-				F8F44EB52D5908D00075D79C /* imcp-server */,
+				F8F44E6C2D59038D0075D79C /* iMCP-MY */,
+				F8F44EB52D5908D00075D79C /* imcp-my-server */,
 			);
 		};
 /* End PBXProject section */
@@ -412,18 +412,18 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = App/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "iMCP MY";
+				INFOPLIST_KEY_CFBundleDisplayName = "iMCP-MY";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "iMCP MY needs access to provide event information to the MCP server.";
-				INFOPLIST_KEY_NSCameraUsageDescription = "iMCP MY needs access to the camera to take pictures for the MCP server.";
-				INFOPLIST_KEY_NSContactsUsageDescription = "iMCP MY needs access to provide contact information to the MCP server.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "iMCP-MY needs access to provide event information to the MCP server.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "iMCP-MY needs access to the camera to take pictures for the MCP server.";
+				INFOPLIST_KEY_NSContactsUsageDescription = "iMCP-MY needs access to provide contact information to the MCP server.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 dododo, LLC. All rights reserved.";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "iMCP MY uses the local network to connect to the MCP server.";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "iMCP MY needs access to provide location information to the MCP server.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "iMCP MY needs access to provide location information to the MCP server.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "iMCP MY needs access to the microphone to record audio for the MCP server.";
-				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "iMCP MY needs access to provide reminders information to the MCP server.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "iMCP-MY uses the local network to connect to the MCP server.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "iMCP-MY needs access to provide location information to the MCP server.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "iMCP-MY needs access to provide location information to the MCP server.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "iMCP-MY needs access to the microphone to record audio for the MCP server.";
+				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "iMCP-MY needs access to provide reminders information to the MCP server.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -439,7 +439,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.1;
 				MARKETING_VERSION = 1.5.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.baltak.imcp;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.baltak.imcp-my";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = auto;
@@ -480,18 +480,18 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = App/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "iMCP MY";
+				INFOPLIST_KEY_CFBundleDisplayName = "iMCP-MY";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "iMCP MY needs access to provide event information to the MCP server.";
-				INFOPLIST_KEY_NSCameraUsageDescription = "iMCP MY needs access to the camera to take pictures for the MCP server.";
-				INFOPLIST_KEY_NSContactsUsageDescription = "iMCP MY needs access to provide contact information to the MCP server.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "iMCP-MY needs access to provide event information to the MCP server.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "iMCP-MY needs access to the camera to take pictures for the MCP server.";
+				INFOPLIST_KEY_NSContactsUsageDescription = "iMCP-MY needs access to provide contact information to the MCP server.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 dododo, LLC. All rights reserved.";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "iMCP MY uses the local network to connect to the MCP server.";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "iMCP MY needs access to provide location information to the MCP server.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "iMCP MY needs access to provide location information to the MCP server.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "iMCP MY needs access to the microphone to record audio for the MCP server.";
-				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "iMCP MY needs access to provide reminders information to the MCP server.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "iMCP-MY uses the local network to connect to the MCP server.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "iMCP-MY needs access to provide location information to the MCP server.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "iMCP-MY needs access to provide location information to the MCP server.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "iMCP-MY needs access to the microphone to record audio for the MCP server.";
+				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "iMCP-MY needs access to provide reminders information to the MCP server.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -507,7 +507,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.1;
 				MARKETING_VERSION = 1.5.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.baltak.imcp;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.baltak.imcp-my";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = auto;
@@ -557,7 +557,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		F8F44E682D59038D0075D79C /* Build configuration list for PBXProject "iMCP" */ = {
+		F8F44E682D59038D0075D79C /* Build configuration list for PBXProject "iMCP-MY" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				F8F44E902D59038E0075D79C /* Debug */,
@@ -566,7 +566,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		F8F44E922D59038E0075D79C /* Build configuration list for PBXNativeTarget "iMCP" */ = {
+		F8F44E922D59038E0075D79C /* Build configuration list for PBXNativeTarget "iMCP-MY" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				F8F44E932D59038E0075D79C /* Debug */,
@@ -575,7 +575,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		F8F44EBA2D5908D00075D79C /* Build configuration list for PBXNativeTarget "imcp-server" */ = {
+		F8F44EBA2D5908D00075D79C /* Build configuration list for PBXNativeTarget "imcp-my-server" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				F8F44EBB2D5908D00075D79C /* Debug */,

@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 
 private let log = Logger.service("files")
 
-private let filesBookmarkKey = "com.baltak.imcp.filesFolderBookmark"
+private let filesBookmarkKey = "com.baltak.imcp-my.filesFolderBookmark"
 
 private let maxFileSize = 100_000_000
 private let maxDirectoryEntries = 1024
@@ -49,7 +49,7 @@ final class FilesService: NSObject, Service, @unchecked Sendable {
     var resourceTemplates: [ResourceTemplate] {
         ResourceTemplate(
             name: "file",
-            description: "Read file or directory contents under the folder you granted iMCP MY access to",
+            description: "Read file or directory contents under the folder you granted iMCP-MY access to",
             uriTemplate: "file://{path}",
             mimeType: "application/json"
         ) { [weak self] uri in
@@ -242,9 +242,9 @@ final class FilesService: NSObject, Service, @unchecked Sendable {
     @MainActor
     private func showAccessAlert() -> Bool {
         let alert = NSAlert()
-        alert.messageText = "Pick a folder to share with iMCP MY"
+        alert.messageText = "Pick a folder to share with iMCP-MY"
         alert.informativeText = """
-            iMCP MY's Files service exposes files only under a single folder \
+            iMCP-MY's Files service exposes files only under a single folder \
             you pick here (and its descendants). It never reads anywhere \
             else. You can change the folder later from the menu bar \
             toggle by resetting it.
@@ -350,7 +350,7 @@ private func directoryJSON(for url: URL) throws -> String {
 
 private final class FolderWatcher {
     private let path: String
-    private let queue = DispatchQueue(label: "com.baltak.imcp.files.watch")
+    private let queue = DispatchQueue(label: "com.baltak.imcp-my.files.watch")
     private var stream: FSEventStreamRef?
     var onChange: (() -> Void)?
 
@@ -430,7 +430,7 @@ enum FilesError: LocalizedError {
         case .invalidURI(let uri):
             return "Not a file:// URI: \(uri)"
         case .outOfScope(let path):
-            return "Path is outside the folder the user granted iMCP MY access to: \(path)"
+            return "Path is outside the folder the user granted iMCP-MY access to: \(path)"
         case .notFound(let path):
             return "File or directory does not exist: \(path)"
         case .fileTooLarge(let size):

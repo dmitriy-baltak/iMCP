@@ -10,7 +10,7 @@ class AboutWindowController: NSWindowController {
             defer: false
         )
         window.center()
-        window.title = "About iMCP MY"
+        window.title = "About iMCP-MY"
         window.contentView = NSHostingView(rootView: AboutView())
         window.isReleasedWhenClosed = false
         self.init(window: window)
@@ -30,7 +30,7 @@ private struct AboutView: View {
                 // Right column - App info and links
                 VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("iMCP MY")
+                        Text("iMCP-MY")
                             .font(.system(size: 24, weight: .medium))
 
                         if let shortVersionString = Bundle.main.shortVersionString {

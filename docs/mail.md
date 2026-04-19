@@ -8,7 +8,7 @@ menu-bar toggle list alongside Calendar, Messages, etc.
 
 On first use, macOS prompts for Automation access so iMCP can control
 Mail. Grant it in **System Settings → Privacy & Security → Automation
-→ iMCP → Mail**. If the dialog was dismissed, tools will fail with an
+→ iMCP-MY → Mail**. If the dialog was dismissed, tools will fail with an
 error message pointing you back to that panel.
 
 The app ships with `com.apple.mail` listed under

@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 
 private let log = Logger.service("mail.envelope")
 
-private let envelopeBookmarkKey = "com.baltak.imcp.mailEnvelopeBookmark"
+private let envelopeBookmarkKey = "com.baltak.imcp-my.mailEnvelopeBookmark"
 private let defaultMailRoot = "\(NSHomeDirectory())/Library/Mail"
 
 // SQLite destructor tags — used when binding text values that the binding site
@@ -57,7 +57,7 @@ enum MailEnvelopeError: LocalizedError {
         switch self {
         case .accessDenied:
             return """
-                Mail data is not accessible. Grant iMCP MY Full Disk Access in \
+                Mail data is not accessible. Grant iMCP-MY Full Disk Access in \
                 System Settings → Privacy & Security → Full Disk Access, or \
                 re-run and select the Envelope Index file when prompted.
                 """
@@ -79,7 +79,7 @@ final class MailEnvelopeDatabase: NSObject, @unchecked Sendable, NSOpenSavePanel
     static let shared = MailEnvelopeDatabase()
 
     // Guards access to `db` handle.
-    private let queue = DispatchQueue(label: "com.baltak.imcp.mail-envelope")
+    private let queue = DispatchQueue(label: "com.baltak.imcp-my.mail-envelope")
     private var db: OpaquePointer?
     private var openedPath: String?
     // Security-scoped URL kept live for as long as `db` is open, so SQLite can
@@ -639,7 +639,7 @@ final class MailEnvelopeDatabase: NSObject, @unchecked Sendable, NSOpenSavePanel
         let alert = NSAlert()
         alert.messageText = "Mail Data Access Required"
         alert.informativeText = """
-            To search Mail fast, iMCP MY needs to read Mail's envelope index.
+            To search Mail fast, iMCP-MY needs to read Mail's envelope index.
 
             In the next screen, select the `MailData` folder \
             (inside ~/Library/Mail/V10/) and click "Grant Access". \
