@@ -38,6 +38,27 @@ extension EKEventStatus {
     }
 }
 
+extension EKSpan {
+    init(_ string: String) {
+        switch string.lowercased() {
+        case "futureevents": self = .futureEvents
+        default: self = .thisEvent
+        }
+    }
+
+    static var allCases: [EKSpan] {
+        return [.thisEvent, .futureEvents]
+    }
+
+    var stringValue: String {
+        switch self {
+        case .thisEvent: return "thisEvent"
+        case .futureEvents: return "futureEvents"
+        @unknown default: return "thisEvent"
+        }
+    }
+}
+
 extension EKRecurrenceFrequency {
     init(_ string: String) {
         switch string.lowercased() {
