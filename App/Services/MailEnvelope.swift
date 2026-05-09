@@ -30,6 +30,10 @@ struct MailEnvelopeFilters {
     var start: Date? = nil
     var end: Date? = nil
     var limit: Int = 30
+    var conversationId: Int64? = nil
+    var excludeDraftsAndTrash: Bool = false
+    var unreadOnly: Bool = false
+    var flaggedOnly: Bool = false
 }
 
 struct MailEnvelopeRow {
@@ -43,6 +47,10 @@ struct MailEnvelopeRow {
     let mailboxURL: String
     let accountUUID: String
     let snippet: String
+    let conversationId: Int64?
+    let read: Bool?
+    let flagged: Bool?
+    let flagColor: Int?
 }
 
 enum MailEnvelopeError: LocalizedError {
@@ -85,6 +93,21 @@ final class MailEnvelopeDatabase: NSObject, @unchecked Sendable, NSOpenSavePanel
     // Security-scoped URL kept live for as long as `db` is open, so SQLite can
     // keep reading the file behind the bookmark.
     private var activeSecurityScopedURL: URL?
+
+    // Column-presence caches populated at open time via PRAGMA table_info.
+    // Mail's envelope schema varies across macOS versions; these gate features
+    // that depend on optional columns.
+    private var hasConversationIdColumn = false
+    private var hasReadColumn = false
+    private var hasFlaggedColumn = false
+    private var hasFlagColorColumn = false
+    private var hasMailboxTypeColumn = false
+
+    var supportsConversationId: Bool {
+        queue.sync { hasConversationIdColumn }
+    }
+    var supportsReadFlag: Bool { queue.sync { hasReadColumn } }
+    var supportsFlaggedFlag: Bool { queue.sync { hasFlaggedColumn } }
 
     deinit {
         closeDB()
@@ -188,6 +211,22 @@ final class MailEnvelopeDatabase: NSObject, @unchecked Sendable, NSOpenSavePanel
         }
     }
 
+    func findThread(
+        conversationId: Int64,
+        limit: Int = 50,
+        excludeDraftsAndTrash: Bool = true
+    ) throws -> [MailEnvelopeRow] {
+        try ensureAccessOrBookmark()
+        return try queue.sync {
+            guard hasConversationIdColumn else { return [] }
+            var filters = MailEnvelopeFilters()
+            filters.conversationId = conversationId
+            filters.excludeDraftsAndTrash = excludeDraftsAndTrash
+            filters.limit = max(1, limit)
+            return try searchLocked(filters)
+        }
+    }
+
     func findMessage(byMessageIdHeader header: String) throws -> MailEnvelopeRow? {
         try ensureAccessOrBookmark()
         return try queue.sync {
@@ -238,6 +277,33 @@ final class MailEnvelopeDatabase: NSObject, @unchecked Sendable, NSOpenSavePanel
             )
             for id in matchingMailboxIds { binds.append(.int(id)) }
             for id in matchingMailboxIds { binds.append(.int(id)) }
+        }
+
+        if filters.excludeDraftsAndTrash {
+            let excluded = try draftsAndTrashMailboxIdsLocked()
+            if !excluded.isEmpty {
+                let placeholders = Array(repeating: "?", count: excluded.count).joined(
+                    separator: ","
+                )
+                whereParts.append(
+                    "(m.mailbox NOT IN (\(placeholders)) AND m.ROWID NOT IN (SELECT message_id FROM labels WHERE mailbox_id IN (\(placeholders))))"
+                )
+                for id in excluded { binds.append(.int(id)) }
+                for id in excluded { binds.append(.int(id)) }
+            }
+        }
+
+        if let cid = filters.conversationId, hasConversationIdColumn {
+            whereParts.append("m.conversation_id = ?")
+            binds.append(.int(cid))
+        }
+
+        if filters.unreadOnly, hasReadColumn {
+            whereParts.append("m.read = 0")
+        }
+
+        if filters.flaggedOnly, hasFlaggedColumn {
+            whereParts.append("m.flagged = 1")
         }
 
         if !filters.sender.isEmpty {
@@ -291,6 +357,11 @@ final class MailEnvelopeDatabase: NSObject, @unchecked Sendable, NSOpenSavePanel
             binds.append(contentsOf: extraBind)
         }
 
+        let conversationIdProjection = hasConversationIdColumn ? "m.conversation_id" : "NULL"
+        let readProjection = hasReadColumn ? "m.read" : "NULL"
+        let flaggedProjection = hasFlaggedColumn ? "m.flagged" : "NULL"
+        let flagColorProjection = hasFlagColorColumn ? "m.flag_color" : "NULL"
+
         let sql = """
             SELECT
                 m.ROWID,
@@ -301,7 +372,11 @@ final class MailEnvelopeDatabase: NSObject, @unchecked Sendable, NSOpenSavePanel
                 s.subject,
                 m.date_received,
                 mb.url,
-                COALESCE(sm.summary, '')
+                COALESCE(sm.summary, ''),
+                \(conversationIdProjection),
+                \(readProjection),
+                \(flaggedProjection),
+                \(flagColorProjection)
             FROM messages m
             JOIN subjects s ON s.ROWID = m.subject
             JOIN addresses a ON a.ROWID = m.sender
@@ -342,6 +417,23 @@ final class MailEnvelopeDatabase: NSObject, @unchecked Sendable, NSOpenSavePanel
             let mailboxURL = text(stmt, 7)
             let snippet = text(stmt, 8)
 
+            let conversationId: Int64? =
+                sqlite3_column_type(stmt, 9) == SQLITE_NULL
+                ? nil
+                : sqlite3_column_int64(stmt, 9)
+            let read: Bool? =
+                sqlite3_column_type(stmt, 10) == SQLITE_NULL
+                ? nil
+                : (sqlite3_column_int64(stmt, 10) != 0)
+            let flagged: Bool? =
+                sqlite3_column_type(stmt, 11) == SQLITE_NULL
+                ? nil
+                : (sqlite3_column_int64(stmt, 11) != 0)
+            let flagColor: Int? =
+                sqlite3_column_type(stmt, 12) == SQLITE_NULL
+                ? nil
+                : Int(sqlite3_column_int64(stmt, 12))
+
             let (mailboxName, accountUUID) = parseMailboxURL(mailboxURL)
             let fullSubject = subjectPrefix.isEmpty ? subject : "\(subjectPrefix) \(subject)"
             let date = dateEpoch > 0
@@ -359,7 +451,11 @@ final class MailEnvelopeDatabase: NSObject, @unchecked Sendable, NSOpenSavePanel
                     mailboxName: mailboxName,
                     mailboxURL: mailboxURL,
                     accountUUID: accountUUID,
-                    snippet: snippet
+                    snippet: snippet,
+                    conversationId: conversationId,
+                    read: read,
+                    flagged: flagged,
+                    flagColor: flagColor
                 )
             )
             rowIds.append(rowId)
@@ -379,7 +475,11 @@ final class MailEnvelopeDatabase: NSObject, @unchecked Sendable, NSOpenSavePanel
                     mailboxName: results[i].mailboxName,
                     mailboxURL: results[i].mailboxURL,
                     accountUUID: results[i].accountUUID,
-                    snippet: results[i].snippet
+                    snippet: results[i].snippet,
+                    conversationId: results[i].conversationId,
+                    read: results[i].read,
+                    flagged: results[i].flagged,
+                    flagColor: results[i].flagColor
                 )
             }
         }
@@ -423,6 +523,53 @@ final class MailEnvelopeDatabase: NSObject, @unchecked Sendable, NSOpenSavePanel
             ids.append(rowId)
         }
         return ids
+    }
+
+    /// Mailbox IDs of "Drafts" and "Trash" mailboxes across all accounts.
+    /// Uses `mailboxes.type` when available (Mail tags drafts=1, trash=3),
+    /// and always supplements with a name-based scan so providers that do
+    /// not tag their mailboxes (Gmail's IMAP-mapped `[Gmail]/Drafts` etc.)
+    /// still land in the exclusion set.
+    private func draftsAndTrashMailboxIdsLocked() throws -> [Int64] {
+        guard let db else { throw MailEnvelopeError.accessDenied }
+        var ids: Set<Int64> = []
+
+        if hasMailboxTypeColumn {
+            var stmt: OpaquePointer?
+            let sql = "SELECT ROWID FROM mailboxes WHERE type IN (1, 3)"
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+                throw MailEnvelopeError.queryFailed(String(cString: sqlite3_errmsg(db)))
+            }
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                ids.insert(sqlite3_column_int64(stmt, 0))
+            }
+            sqlite3_finalize(stmt)
+        }
+
+        // Name-based sweep (always run — catches Gmail/IMAP providers that
+        // leave the type column NULL even when it exists, and is the only
+        // path on schemas without the type column at all).
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            db, "SELECT ROWID, url FROM mailboxes", -1, &stmt, nil
+        ) == SQLITE_OK, let stmt else {
+            throw MailEnvelopeError.queryFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(stmt) }
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let rowId = sqlite3_column_int64(stmt, 0)
+            let url = text(stmt, 1)
+            let (name, _) = parseMailboxURL(url)
+            let lowered = name.lowercased()
+            let leaf = lowered.split(separator: "/").last.map(String.init) ?? lowered
+            switch leaf {
+            case "drafts", "trash", "deleted items", "deleted messages":
+                ids.insert(rowId)
+            default:
+                break
+            }
+        }
+        return Array(ids)
     }
 
     private func recipientsLocked(rowIds: [Int64]) throws -> [Int64: String] {
@@ -544,6 +691,61 @@ final class MailEnvelopeDatabase: NSObject, @unchecked Sendable, NSOpenSavePanel
         openedPath = path
         activeSecurityScopedURL = securityScopedURL
         log.debug("Opened Mail envelope at \(path, privacy: .public)")
+
+        probeSchemaLocked()
+    }
+
+    /// Probes PRAGMA table_info on the tables we read, populating the
+    /// `hasXColumn` flags. Schema varies across macOS major versions — we
+    /// degrade gracefully rather than hard-fail on older layouts.
+    private func probeSchemaLocked() {
+        hasConversationIdColumn = false
+        hasReadColumn = false
+        hasFlaggedColumn = false
+        hasFlagColorColumn = false
+        hasMailboxTypeColumn = false
+
+        let messagesCols = columnNamesLocked(table: "messages")
+        for name in messagesCols {
+            switch name.lowercased() {
+            case "conversation_id": hasConversationIdColumn = true
+            case "read": hasReadColumn = true
+            case "flagged": hasFlaggedColumn = true
+            case "flag_color": hasFlagColorColumn = true
+            default: break
+            }
+        }
+
+        let mailboxCols = columnNamesLocked(table: "mailboxes")
+        hasMailboxTypeColumn = mailboxCols.contains { $0.lowercased() == "type" }
+
+        log.debug(
+            """
+            Mail envelope schema: conversation_id=\(self.hasConversationIdColumn, privacy: .public) \
+            read=\(self.hasReadColumn, privacy: .public) \
+            flagged=\(self.hasFlaggedColumn, privacy: .public) \
+            flag_color=\(self.hasFlagColorColumn, privacy: .public) \
+            mailboxes.type=\(self.hasMailboxTypeColumn, privacy: .public)
+            """
+        )
+    }
+
+    private func columnNamesLocked(table: String) -> [String] {
+        guard let db else { return [] }
+        // Identifier is not user-supplied (constant from this file), but still
+        // quoted to avoid any ambiguity. PRAGMA can't be parameterised.
+        let sql = "PRAGMA table_info(\"\(table)\")"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            return []
+        }
+        defer { sqlite3_finalize(stmt) }
+        var names: [String] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            // column order: cid, name, type, notnull, dflt_value, pk
+            names.append(text(stmt, 1))
+        }
+        return names
     }
 
     private func closeDB() {
