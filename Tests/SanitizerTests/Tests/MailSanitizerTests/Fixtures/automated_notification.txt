@@ -1,0 +1,11 @@
+From: GitHub <notifications@github.com>
+To: dmytro@example.com
+Subject: [user/repo] PR #42 was merged
+Date: Wed, 11 May 2026 10:00:00 +0000
+Auto-Submitted: auto-generated
+
+Hi Dmytro,
+
+PR #42 in user/repo was merged by another contributor.
+
+— GitHub

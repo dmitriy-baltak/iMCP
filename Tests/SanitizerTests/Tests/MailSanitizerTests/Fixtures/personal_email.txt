@@ -1,0 +1,12 @@
+From: Alice <alice@example.com>
+To: dmytro@example.com
+Subject: Re: lunch tomorrow
+Date: Wed, 11 May 2026 10:00:00 +0000
+In-Reply-To: <abcd1234@example.com>
+References: <abcd1234@example.com> <0000@example.com>
+
+Hey,
+
+Lunch tomorrow at 12:30 sounds good. See you at the usual place.
+
+— Alice
