@@ -1,0 +1,18 @@
+From: Acme Deals <noreply@deals.acme.example>
+To: dmytro@example.com
+Subject: 50% off summer sale - limited time only!
+Date: Wed, 11 May 2026 10:00:00 +0000
+List-Unsubscribe: <mailto:unsubscribe@deals.acme.example>, <https://deals.acme.example/u/12345>
+Precedence: bulk
+
+Hi shopper,
+
+Don't miss our biggest sale yet! 50% off everything this week.
+
+Shop here: https://deals.acme.example/sale
+Or here: https://deals.acme.example/featured
+Or here: https://deals.acme.example/clearance
+Or here: https://deals.acme.example/new
+Or here: https://deals.acme.example/top10
+
+Unsubscribe: https://deals.acme.example/u/12345

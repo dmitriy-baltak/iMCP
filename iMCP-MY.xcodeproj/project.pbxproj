@@ -21,6 +21,7 @@
 		F8D7C31A2DCBD32100A4775F /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = F8D7C3192DCBD32100A4775F /* MCP */; };
 		F8D8C48E2DCE0E6800369E5C /* JSONSchema in Frameworks */ = {isa = PBXBuildFile; productRef = F8D8C48D2DCE0E6800369E5C /* JSONSchema */; };
 		F8F1D2F82D6F9E0C00F6323D /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = F8F44E9C2D5903F70075D79C /* MCP */; };
+		F855F005A001A00100A001A1 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = F855F005A001A00100A001A3 /* SwiftSoup */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -91,6 +92,7 @@
 				F8D7C3172DCBD30500A4775F /* MCP in Frameworks */,
 				F80955702D7888920055B911 /* iMessage in Frameworks */,
 				F8D8C48E2DCE0E6800369E5C /* JSONSchema in Frameworks */,
+				F855F005A001A00100A001A1 /* SwiftSoup in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -156,6 +158,7 @@
 				F8D7C3192DCBD32100A4775F /* MCP */,
 				F8D8C48D2DCE0E6800369E5C /* JSONSchema */,
 				F87796FB2E0764AE00328CC6 /* MenuBarExtraAccess */,
+				F855F005A001A00100A001A3 /* SwiftSoup */,
 			);
 			productName = "iMCP-MY";
 			productReference = F8F44E6D2D59038D0075D79C /* iMCP-MY.app */;
@@ -222,6 +225,7 @@
 				F8D7C3182DCBD32100A4775F /* XCRemoteSwiftPackageReference "swift-sdk" */,
 				F8D8C48C2DCE0E6800369E5C /* XCRemoteSwiftPackageReference "JSONSchema" */,
 				F87796FA2E0764AE00328CC6 /* XCRemoteSwiftPackageReference "MenuBarExtraAccess" */,
+				F855F005A001A00100A001A2 /* XCRemoteSwiftPackageReference "SwiftSoup" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = F8F44E6E2D59038D0075D79C /* Products */;
@@ -643,6 +647,14 @@
 				minimumVersion = 1.3.0;
 			};
 		};
+		F855F005A001A00100A001A2 /* XCRemoteSwiftPackageReference "SwiftSoup" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/scinfu/SwiftSoup.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.7.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -706,6 +718,11 @@
 		F8F44E9C2D5903F70075D79C /* MCP */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = MCP;
+		};
+		F855F005A001A00100A001A3 /* SwiftSoup */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F855F005A001A00100A001A2 /* XCRemoteSwiftPackageReference "SwiftSoup" */;
+			productName = SwiftSoup;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

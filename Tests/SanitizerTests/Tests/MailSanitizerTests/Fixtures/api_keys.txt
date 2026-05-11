@@ -1,0 +1,18 @@
+Subject: Your API credentials (do not share)
+
+Hi developer,
+
+Here are your credentials for the integration:
+
+Stripe secret key: <<STRIPE_LIVE>>
+GitHub PAT:        <<GITHUB_PAT>>
+AWS access key:    <<AWS_ACCESS>>
+JWT bearer token:  <<JWT>>
+Slack bot token:   <<SLACK_BOT>>
+SendGrid token:    <<SENDGRID>>
+
+Keep these secret.
+
+Cheers,
+The team
+

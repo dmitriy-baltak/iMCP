@@ -1,0 +1,9 @@
+Hi Dmytro,
+
+Click the link below to reset your password:
+
+https://accounts.example.com/reset?token=abc123def456ghi789jkl012mno345
+
+This link expires in 1 hour. If you didn't request a reset, ignore this email.
+
+— Acme Accounts
