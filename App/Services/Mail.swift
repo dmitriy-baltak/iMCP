@@ -45,6 +45,10 @@ final class MailService: NSObject, @unchecked Sendable, Service {
 
     func activate() async throws {
         _ = try await runHandler("probeAuthorization", arguments: [])
+        // Eagerly grant access to Mail's envelope index too so the user sees
+        // both TCC prompts (AppleEvents automation + sandboxed file scope) at
+        // toggle time instead of being surprised on first tool call.
+        try await MailEnvelopeDatabase.shared.activate()
     }
 
     var tools: [Tool] {
