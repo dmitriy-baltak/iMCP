@@ -23,16 +23,26 @@ text**: anyone can send you a message containing prompt-injection prose,
 embedded credentials, magic links, tracking URLs, or steganographic
 zero-width characters. The Mail service splits its tools into three
 buckets so you can wire up an autonomous agent without exposing raw
-attacker content to the orchestrator.
+attacker content to the orchestrator and without giving any single agent
+both body-read and write capability.
 
 | Bucket | Tools | Notes |
 |--------|-------|-------|
-| **Safe** for top-level orchestrator context | `mail_search`, `mail_threads`, `mail_list_mailboxes`, `mail_fetch_sanitized`, `mail_classify`, `mail_attachments_list_sanitized`, `mail_send`, `mail_unsubscribe`, `mail_mark_read`, `mail_move`, `mail_delete` | Either no body content reaches the agent at all, or the body is run through `MailSanitizer` (HTML-strip via SwiftSoup, URL neutralization, secret redaction, length cap, zero-width strip). `mail_search`/`mail_threads` snippets are a small attacker-controlled surface but are length-bounded by Mail's envelope index. |
-| **`*_dangerous`** — confine to a narrow subagent | `mail_fetch_dangerous`, `mail_attachments_fetch_dangerous` | Return raw bodies / raw headers / raw filenames / paths to attacker bytes on disk. Use only inside a body-reader subagent that does NOT feed its output back into the orchestrator prompt. |
-| **Action-only** — must NOT co-exist with `*_dangerous` in the same agent | `mail_forward`, `mail_reply` | Don't return body content, but combined with body-read capability they form the canonical exfiltration path: an injected email can social-engineer the agent into forwarding sensitive context to an attacker address. |
+| **Safe** — read-only, no raw body content reaches the agent | `mail_search`, `mail_threads`, `mail_list_mailboxes`, `mail_fetch_sanitized`, `mail_classify`, `mail_attachments_list_sanitized` | Either no body content is returned at all, or the body is run through `MailSanitizer` (HTML-strip via SwiftSoup, URL neutralization, secret redaction, length cap, zero-width strip). `mail_search`/`mail_threads` snippets are a small attacker-controlled surface but length-bounded by Mail's envelope index. |
+| **`*_dangerous`** — raw attacker-controlled content | `mail_fetch_dangerous`, `mail_attachments_fetch_dangerous` | Return raw bodies / raw headers / raw filenames / paths to attacker bytes on disk. Use only inside a body-reader subagent that does NOT feed its output back into the orchestrator prompt. |
+| **Action / state-changing** — must NOT co-exist with `*_dangerous` in the same agent | `mail_send`, `mail_reply`, `mail_forward`, `mail_unsubscribe`, `mail_mark_read`, `mail_move`, `mail_delete` | Each one writes, sends, or mutates state. None return raw body content, but combined with body-read capability they form an exfiltration / cover-up channel — an injected email can social-engineer the agent into forwarding sensitive context, mass-deleting evidence, marking alerts read so the user misses them, or moving messages to a hidden folder. |
 
-> Wiring rule: grant `*_dangerous` and `mail_forward`/`mail_reply` to
-> **different** subagents. The orchestrator should hold none of them.
+> **Wiring rule (three roles, no overlap):**
+>
+> 1. **Orchestrator** — only the *Safe* tools.
+> 2. **Body-reader subagent** — the `*_dangerous` tools. Its outputs
+>    must NOT be fed back into the orchestrator prompt.
+> 3. **Action / writer subagent** — the *Action* tools.
+>
+> No single agent may hold both `*_dangerous` and any *Action* tool.
+> That combination is the canonical exfiltration / cover-up path: a
+> hostile email reaches the agent's context, then the agent is
+> instructed (by the email) to send it elsewhere or hide the trail.
 
 ## Tools
 
@@ -196,6 +206,11 @@ no bytes on disk.**
 
 ### `mail_send`
 
+> Action tool: do not co-locate with `mail_fetch_dangerous` or
+> `mail_attachments_fetch_dangerous` in the same agent. With body-read
+> capability available, an injected email can social-engineer the agent
+> into sending sensitive context to an attacker address.
+
 Compose and send a message using the default outgoing account.
 
 ```json
@@ -279,6 +294,11 @@ empty. `send: false` saves the forward as a draft.
 
 ### `mail_move`
 
+> Action tool: do not co-locate with `mail_fetch_dangerous` or
+> `mail_attachments_fetch_dangerous` in the same agent. The cover-up
+> risk is moving a security alert / abuse report into a folder where
+> the user won't see it.
+
 Move a message to a different mailbox. To archive, pass the account's
 Archive mailbox (or `[Gmail]/All Mail` for Gmail-style accounts).
 
@@ -292,6 +312,11 @@ account is used.
 
 ### `mail_mark_read`
 
+> Action tool: do not co-locate with `mail_fetch_dangerous` or
+> `mail_attachments_fetch_dangerous` in the same agent. Looks benign
+> in isolation, but a hostile email could instruct the agent to mark
+> security alerts read so the user misses them.
+
 Mark a message read or unread.
 
 ```json
@@ -299,6 +324,37 @@ Mark a message read or unread.
 ```
 
 Pass `read: false` to mark unread.
+
+### `mail_unsubscribe`
+
+> Action tool: do not co-locate with `mail_fetch_dangerous` or
+> `mail_attachments_fetch_dangerous` in the same agent. A hostile
+> email could instruct the agent to mass-unsubscribe from legitimate
+> sources, or trigger an HTTPS request to an attacker-controlled
+> endpoint via the parsed `List-Unsubscribe` header.
+
+Unsubscribe from a sender via the message's RFC 2369 `List-Unsubscribe`
+header. When the sender advertises RFC 8058 one-click
+(`List-Unsubscribe-Post: List-Unsubscribe=One-Click`), POSTs to the
+HTTPS URL; otherwise dispatches the `mailto:` variant through Mail.app.
+If the message only exposes a non-one-click HTTPS URL, the URL is
+returned for the user to visit manually. Identify the message by `id`
+or `message_id`. Pass `dry_run: true` to inspect the parsed endpoints
+without executing.
+
+### `mail_delete`
+
+> Action tool: do not co-locate with `mail_fetch_dangerous` or
+> `mail_attachments_fetch_dangerous` in the same agent. The cover-up
+> risk is destroying evidence of an attack — security alerts, audit
+> trails, attacker-sent emails the user has not seen yet.
+
+Move a Mail message to Trash. Identify the message by envelope rowid
+(`id` from `mail_search`) or Message-ID header.
+
+```json
+{ "id": "12345" }
+```
 
 ### `mail_list_mailboxes`
 
